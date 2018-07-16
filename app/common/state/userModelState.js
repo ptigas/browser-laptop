@@ -12,6 +12,7 @@ const appActions = require('../../../js/actions/appActions')
 
 // Constants
 const settings = require('../../../js/constants/settings')
+const userFeatures = require('../../../js/constants/userFeatures')
 
 // State
 const getSetting = require('../../../js/settings').getSetting
@@ -102,6 +103,10 @@ const userModelState = {
     return state.getIn([ 'userModel', key ])
   },
 
+  
+  // TODO: ptigas
+  // Short history (15)
+  // Long history (30 days)
   appendPageScoreToHistoryAndRotate: (state, pageScore) => {
     const stateKey = [ 'userModel', 'pageScoreHistory' ]
     const wrappedScore = Immutable.List(pageScore)
@@ -135,6 +140,7 @@ const userModelState = {
     return state.setIn(key, seen)
   },
 
+  // TODO: ptigas
   allowedToShowAdBasedOnHistory: (state) => {
     const history = state.getIn([ 'userModel', 'adsShownHistory' ]) || []
 
@@ -180,8 +186,13 @@ const userModelState = {
     return state.getIn([ 'userModel', 'elphDefer' ])
   },
 
+  // TODO: ptigas
+  getActivityScore: (state) => {
+    state = validateState(state);
+  },
+
   getPageScoreHistory: (state, mutable = false) => {
-    state = validateState(state)
+    state = validateState(state);
     const history = state.getIn([ 'userModel', 'pageScoreHistory' ]) || []
 
     return (mutable ? makeJS(history) : makeImmutable(history))
@@ -462,6 +473,21 @@ const userModelState = {
 
   setAdUUID: (state, uuid) => {
     return state.setIn([ 'userModel', 'adUUID' ], uuid)
+  },
+
+  getUserFeatures: (state, uuid) => {
+    features = new Map()
+
+    // the intent is influenced by search on google, bing, duckduckgo, etc.
+    features.set(userFeatures.INTENT, 'intent')
+
+    // the last 10 tabs
+    features.set(userFeatures.SHORT_INTEREST, 'shortInterest')
+
+    // average topic over the last 30 days
+    features.set(userFeatures.LONG_INTEREST, 'longInterest')
+
+    return features
   },
 
   appendToUserSurveyQueue: (state, survey) => {

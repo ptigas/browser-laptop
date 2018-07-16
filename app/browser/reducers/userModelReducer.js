@@ -82,6 +82,10 @@ const userModelReducer = (state, action, immutableAction) => {
         state = userModel.testShoppingData(state, url)
         state = userModel.testSearchState(state, url)
         state = userModel.generateAdReportingEvent(state, 'focus', action)
+
+        // TODO: ptigas
+        // test activity
+
         break
       }
     case appConstants.APP_IDLE_STATE_CHANGED: // TODO where to set this globally
@@ -105,6 +109,13 @@ const userModelReducer = (state, action, immutableAction) => {
         state = userModel.testShoppingData(state, url)
         state = userModel.testSearchState(state, url)
         state = userModel.classifyPage(state, action, tabValue.get('windowId'))
+
+        // TODO: ptigas
+        // change state to set session id
+
+        // TODO: ptigas
+        // get intent => classification + if it's a search engine result assign it to intent
+
 //        state = userModel.debouncedTimingUpdate(state, url)  // correct place for most updates; checks for debounce
         break
       }

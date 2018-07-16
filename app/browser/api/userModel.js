@@ -12,6 +12,8 @@ const underscore = require('underscore')
 const urlFormat = require('url').format
 const uuidv4 = require('uuid/v4')
 
+const adsRelevance = require('../ads/adsRelevance')
+
 const app = require('electron').app
 const os = require('os')
 
@@ -390,6 +392,31 @@ const topicVariance = (state) => { // this is a fairly random function; would ha
   return valueToLowHigh(varval, 2.5) // 2.5 needs to be changed for ANY algo change here
 }
 
+// TODO: ptigas
+// Short history (15)
+// Long history (30 days)
+
+// TODO: ptigas
+const topicEntropy = (state, window = 5) => {
+  // return the entropy of the topics distribution over a window
+  // try different windows (5, 15)
+}
+
+// TODO: ptigas
+const topicProbabilities = (state, window = 5) => {
+
+}
+
+// TODO: ptigas
+const sessionIdentification = (state) => {
+
+}
+
+// TODO: ptigas
+const demographicsPrediction = (state) => {
+  // returns a gender and a score
+}
+
 const recencyCalc = (state) => { // was using unidle time here; switched to last shopping time
   let now = new Date().getTime()
   let diff = (now - userModelState.getLastShoppingTime(state)) / 1000 // milliseconds
@@ -418,6 +445,10 @@ const testShoppingData = (state, url) => {
   } else if (hostname !== 'www.amazon.com' && lastShopState) { // do we need lastShopState? assumes amazon queries hostname changes
     state = userModelState.unFlagShoppingState(state)
   }
+
+  // TODO: ptigas
+  // read the activity score for shopping
+
   return state
 }
 
@@ -599,11 +630,62 @@ const checkReadyAdServe = (state, windowId, forceP) => {  // around here is wher
     return state
   }
 
+
   const seen = userModelState.getAdUUIDSeen(state)
 
   const adsSeen = result.filter(x => seen.get(x.uuid))
   let adsNotSeen = result.filter(x => !seen.get(x.uuid))
   const allSeen = (adsNotSeen.length <= 0)
+
+  // TODO: ptigas
+
+  // Ads selection main logic
+
+  // outline of the algorithm:
+  //    Score the ads based on some ranking features
+  //    Randomly sample from the unseen ads using the scores as weights (normalize first)
+  //    Initial weights for the logistic regression: 60% intent, 30% short interest, 10% long-term interest
+  //    Over-time that will move towards more advanced CTR models
+
+  // For now we assume user context features and ads relevance features
+
+  const userFeatures = userModelState.getUserFeatures()
+  const adsRelevanceFeatures = extractAdsFeatures(adsNotSeen, userFeatures)
+
+  const adsScores = adsRelevance.ScoreAdsRelevance(adsNotSeen, adsRelevanceFeatures)
+
+  const selectedAd = adsRelevance.SampleAd(adsNotSeen, adsScores)
+
+  const payload = adsNotSeen[selectedAd]
+
+  if (!payload) {
+    appActions.onUserModelLog('Ad not served',
+                              { reason: 'no ad for winnerOverTime', category, winnerOverTime, selectedAd })
+
+    return state
+  }
+
+  const notificationText = payload.notificationText
+  const notificationUrl = payload.notificationURL
+  const advertiser = payload.advertiser
+  if (!notificationText || !notificationUrl || !advertiser) {
+    appActions.onUserModelLog('Ad not served',
+                              { reason: 'incomplete ad information', category, winnerOverTime, selectedAd, notificationUrl, notificationText, advertiser })
+
+    return state
+  }
+
+  const uuid = payload.uuid
+
+  goAheadAndShowTheAd(windowId, advertiser, notificationText, notificationUrl, uuid)
+  appActions.onUserModelLog(notificationTypes.AD_SHOWN,
+                            {category, winnerOverTime, selectedAd, notificationUrl, notificationText, advertiser, uuid, hierarchy})
+
+  return userModelState.appendAdShownToAdHistory(state)
+
+
+
+  // end of main logic
 
   if (allSeen) {
     appActions.onUserModelLog('Ad round-robin', { category, adsSeen, adsNotSeen })
