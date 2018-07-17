@@ -12,8 +12,6 @@ const underscore = require('underscore')
 const urlFormat = require('url').format
 const uuidv4 = require('uuid/v4')
 
-const adsRelevance = require('../ads/adsRelevance')
-
 const app = require('electron').app
 const os = require('os')
 
@@ -34,6 +32,9 @@ const Immutable = require('immutable')
 // Utils
 const urlParse = require('../../common/urlParse')
 const roundtrip = require('./ledger').roundtrip
+
+// Ads relevance helpers
+const { scoreAdsRelevance, sampleAd } = require('../ads/adsRelevance')
 
 const debugP = (process.env.NODE_ENV === 'test') || (process.env.LEDGER_VERBOSE === 'true')
 const testingP = true
@@ -637,6 +638,15 @@ const checkReadyAdServe = (state, windowId, forceP) => {  // around here is wher
   let adsNotSeen = result.filter(x => !seen.get(x.uuid))
   const allSeen = (adsNotSeen.length <= 0)
 
+  if (allSeen) {
+    appActions.onUserModelLog('Ad round-robin', { category, adsSeen, adsNotSeen })
+    // unmark all
+    for (let i = 0; i < result.length; i++) {
+      state = userModelState.recordAdUUIDSeen(state, result[i].uuid, 0)
+    }
+    adsNotSeen = adsSeen
+  } // else - recordAdUUIDSeen - this actually only happens in click-or-close event capture in generateAdReportingEvent in this file
+
   // TODO: ptigas
 
   // Ads selection main logic
@@ -652,9 +662,9 @@ const checkReadyAdServe = (state, windowId, forceP) => {  // around here is wher
   const userFeatures = userModelState.getUserFeatures()
   const adsRelevanceFeatures = extractAdsFeatures(adsNotSeen, userFeatures)
 
-  const adsScores = adsRelevance.ScoreAdsRelevance(adsNotSeen, adsRelevanceFeatures)
+  const adsScores = scoreAdsRelevance(adsNotSeen, adsRelevanceFeatures)
 
-  const selectedAd = adsRelevance.SampleAd(adsNotSeen, adsScores)
+  const selectedAd = sampleAd(adsNotSeen, adsScores)
 
   const payload = adsNotSeen[selectedAd]
 
@@ -680,46 +690,6 @@ const checkReadyAdServe = (state, windowId, forceP) => {  // around here is wher
   goAheadAndShowTheAd(windowId, advertiser, notificationText, notificationUrl, uuid)
   appActions.onUserModelLog(notificationTypes.AD_SHOWN,
                             {category, winnerOverTime, selectedAd, notificationUrl, notificationText, advertiser, uuid, hierarchy})
-
-  return userModelState.appendAdShownToAdHistory(state)
-
-
-
-  // end of main logic
-
-  if (allSeen) {
-    appActions.onUserModelLog('Ad round-robin', { category, adsSeen, adsNotSeen })
-    // unmark all
-    for (let i = 0; i < result.length; i++) state = userModelState.recordAdUUIDSeen(state, result[i].uuid, 0)
-    adsNotSeen = adsSeen
-  } // else - recordAdUUIDSeen - this actually only happens in click-or-close event capture in generateAdReportingEvent in this file
-
-  // select an ad that isn't seen
-  const arbitraryKey = randomKey(adsNotSeen)
-  const payload = adsNotSeen[arbitraryKey]
-
-  if (!payload) {
-    appActions.onUserModelLog('Ad not served',
-                              { reason: 'no ad for winnerOverTime', category, winnerOverTime, arbitraryKey })
-
-    return state
-  }
-
-  const notificationText = payload.notificationText
-  const notificationUrl = payload.notificationURL
-  const advertiser = payload.advertiser
-  if (!notificationText || !notificationUrl || !advertiser) {
-    appActions.onUserModelLog('Ad not served',
-                              { reason: 'incomplete ad information', category, winnerOverTime, arbitraryKey, notificationUrl, notificationText, advertiser })
-
-    return state
-  }
-
-  const uuid = payload.uuid
-
-  goAheadAndShowTheAd(windowId, advertiser, notificationText, notificationUrl, uuid)
-  appActions.onUserModelLog(notificationTypes.AD_SHOWN,
-                            {category, winnerOverTime, arbitraryKey, notificationUrl, notificationText, advertiser, uuid, hierarchy})
 
   return userModelState.appendAdShownToAdHistory(state)
 }
