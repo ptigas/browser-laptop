@@ -31,6 +31,7 @@ const Immutable = require('immutable')
 
 // Utils
 const urlParse = require('../../common/urlParse')
+const urlParse2 = require('url').parse
 const roundtrip = require('./ledger').roundtrip
 
 // Ads relevance helpers
@@ -287,11 +288,11 @@ const tabUpdate = (state, action) => {
 }
 
 const removeHistorySite = (state, action) => {
-  // check to see how ledger removes history
-  // first need to establish site classification DB in userModelState
-  // blow it all away for now
-
-  return userModelState.removeAllHistory(state)
+  // site history removal happens on legit issues like site fails to load.
+  // removing All History absolutely can't happen here.
+  // other than (possibly) the temporary logging facility, these sites are never
+  // really logged in this state anyway -SCL
+  return state
 }
 
 const removeAllHistory = (state) => {
@@ -436,13 +437,38 @@ const valueToLowHigh = (x, thresh) => {
 }
 // end timing related pieces
 
+const amazonSearchQueryFields = ['field-keywords', 'keywords']
+
+const extractURLKeywordsByField = (url, queryFields) => {
+  const parsed = urlParse2(url, true)
+  const query = parsed.query
+
+  let found = []
+
+  for (let field of queryFields) {
+    let sentence = query[field]
+
+    if (!sentence) {
+      continue
+    }
+
+    let words = sentence.split(' ')
+    found = found.concat(words)
+  }
+
+  return found
+}
+
 const testShoppingData = (state, url) => {
   if (noop(state)) return state
   const hostname = urlParse(url).hostname
   const lastShopState = userModelState.getShoppingState(state)
+
   if (hostname === 'www.amazon.com') {
     const score = 1.0   // eventually this will be more sophisticated than if(), but amazon is always a shopping destination
     state = userModelState.flagShoppingState(state, url, score)
+    const keywords = extractURLKeywordsByField(url, amazonSearchQueryFields)
+    console.log('keywords: ', keywords)
   } else if (hostname !== 'www.amazon.com' && lastShopState) { // do we need lastShopState? assumes amazon queries hostname changes
     state = userModelState.unFlagShoppingState(state)
   }
@@ -744,12 +770,13 @@ let collectActivityId
 
 const oneDay = (debugP ? 600 : 86400) * 1000
 const oneHour = (debugP ? 25 : 3600) * 1000
-const hackStagingOn = true
+const hackStagingOn = process.env.COLLECTOR_DEBUG === 'true'
 const roundTripOptions = {
   debugP: process.env.LEDGER_DEBUG === 'true',
   loggingP: process.env.LEDGER_LOGGING === 'true',
   verboseP: process.env.LEDGER_VERBOSE === 'true',
-  server: urlParse('https://' + (hackStagingOn || testingP ? 'collector-staging.brave.com' : 'collector.brave.com'))
+  server: urlParse('https://' + (hackStagingOn ? 'collector-staging.brave.com'
+                                 : testingP ? 'collector-testing.brave.com' : 'collector.brave.com'))
 }
 
 const collectActivityAsNeeded = (state, adEnabled) => {
@@ -871,18 +898,9 @@ const downloadSurveys = (state, surveys) => {
 
   appActions.onUserModelLog('Surveys downloaded', surveys)
   surveys = surveys.filter(survey => survey.get('status') === 'available')
-
-  if (testingP) {
-    const queue = userModelState.getUserSurveyQueue(state)
-
-    surveys = surveys.filter(survey =>
-                             !queue.some(entry => (survey.id === entry.id) && (entry.get('status') !== 'available')))
-  }
-
-  state = userModelState.setUserSurveyQueue(state, surveys)
   appActions.onUserModelLog('Surveys available', surveys)
 
-  return state
+  return userModelState.setUserSurveyQueue(state, surveys)
 }
 
 const privateTest = () => {
