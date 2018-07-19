@@ -575,8 +575,8 @@ const classifyPage = (state, action, windowId) => {
   
   let now = new Date().getTime()
   let lastSearched = (now - userModelState.getLastSearchTime(state)) / 1000 // milliseconds
-  state = userModelState.updateShortTermInterests(state, pageScore, lastVisitedTimestamp)
-  state = userModelState.updateLongTermInterests(state, pageScore, lastVisitedTimestamp)
+  state = userModelState.updateShortTermInterests(state, pageScore, 0)
+  state = userModelState.updateLongTermInterests(state, pageScore, 0)
   state = userModelState.updateSERPIntent(state, pageScore, lastSearched)
 
   const catNames = priorData.names

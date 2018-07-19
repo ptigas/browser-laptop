@@ -56,13 +56,19 @@ const incrementalWeightedAverage = (state, key, item, weight) => {
 
   let previous = state.getIn(key)
 
+  console.log("PREVIOUS AVERAGE: " + JSON.stringify(item))
+
   // it's undefined...
-  if (!Immutable.List.isList(previous)) previous = Immutable.List()
+  if (!Immutable.List.isList(previous)) {
+    return state.setIn(key, item)
+  }
 
   let v = new Array(previous.length)
   for (let i = 0; i < previous.length; i++) {
     v[i] = weight*previous[i] + item[i]
   }
+
+  console.log(JSON.stringify({key: key, val: v}))
 
   return state.setIn(key, v)
 }
@@ -131,29 +137,28 @@ const userModelState = {
     // change of session, change of context etc.
   },
 
-  updateShortTermInterests: (state, pageScore) => {
+  updateShortTermInterests: (state, pageScore, timeSinceLastEvent) => {
     const stateKey = [ 'userModel', 'shortTermInterests' ]
     const wrappedScore = Immutable.List(pageScore)
     //const average = a*stateKey + (1-a)*pageScore
     
     // long term history
-    return state//incrementalWeightedAverage(state, stateKey, )
+    return state //incrementalWeightedAverage(state, stateKey, )
   },
 
-  updateLongTermInterests: (state, pageScore) => {
+  updateLongTermInterests: (state, pageScore, timeSinceLastEvent) => {
     const stateKey = [ 'userModel', 'longTermInterests' ]
     const wrappedScore = Immutable.List(pageScore)
 
     // long term history
-    return state//incrementalWeightedAverage(state, stateKey, )
+    return state //incrementalWeightedAverage(state, stateKey, )
   },
 
-  updateSERPIntent: (state, pageScore) => {
+  updateSERPIntent: (state, pageScore, timeSinceLastEvent) => {
     const stateKey = [ 'userModel', 'intent' ]
     const wrappedScore = Immutable.List(pageScore)
-    // check if in search mode
-    // then check the pageScore and update the state
-    const searchMode = false
+    
+    const searchMode = userModelState.getSearchState(state)
     if (searchMode) {
       return incrementalWeightedAverage(state, stateKey, pageScore, 1.0) 
     } else {
@@ -546,26 +551,7 @@ const userModelState = {
   getUserFeatures: (state) => {
     const features = new Map()
 
-
     // get history
-
-      
-    // create top and 2nd level topic vectors
-    let categoryHistogram = {}
-    let secCategoryHistogram = {}
-    for (let i in scores) {
-      const category = catNames[i]
-      const hierarchy = category.split('-')
-      for (let level in hierarchy) {
-        winnerOverTime = hierarchy.slice(0, hierarchy.length - level).join('-')
-        result = bundle.categories[winnerOverTime]
-        if (result) break
-      }
-
-      if (result) {
-      }
-    }
-    
 
     // the intent is influenced by search on google, bing, duckduckgo, etc.
     features.set(userFeatures.INTENT, 'intent')
