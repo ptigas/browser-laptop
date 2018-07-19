@@ -35,7 +35,7 @@ const urlParse2 = require('url').parse
 const roundtrip = require('./ledger').roundtrip
 
 // Ads relevance helpers
-const { scoreAdsRelevance, sampleAd } = require('../ads/adsRelevance')
+const { scoreAdsRelevance, sampleAd, extractAdsFeatures } = require('../ads/adsRelevance')
 
 const debugP = (process.env.NODE_ENV === 'test') || (process.env.LEDGER_VERBOSE === 'true')
 const testingP = true
@@ -156,6 +156,11 @@ const generateAdReportingEvent = (state, eventType, action) => {
 
           state = checkReadyAdServe(state, windows.getActiveWindowId(), true)
         }
+
+        if ((testingP) && (tabUrl === 'https://ptigas.com/')) {
+          state = checkReadyAdServe(state, windows.getActiveWindowId(), true)
+        }
+
         break
       }
 
@@ -389,6 +394,10 @@ const topicVariance = (state) => { // this is a fairly random function; would ha
   let history = userModelState.getPageScoreHistory(state, true)
   let nback = history.length
   let scores = um.deriveCategoryScores(history)
+  console.log("----")
+  console.log(JSON.stringify(history))
+  console.log(JSON.stringify(scores))
+  console.log("/----")
   let indexOfMax = um.vectorIndexOfMax(scores)
   let varval = nback / scores[indexOfMax]
   return valueToLowHigh(varval, 2.5) // 2.5 needs to be changed for ANY algo change here
@@ -563,6 +572,12 @@ const classifyPage = (state, action, windowId) => {
   const pageScore = um.NBWordVec(words, matrixData, priorData)
 
   state = userModelState.appendPageScoreToHistoryAndRotate(state, pageScore)
+  
+  let now = new Date().getTime()
+  let lastSearched = (now - userModelState.getLastSearchTime(state)) / 1000 // milliseconds
+  state = userModelState.updateShortTermInterests(state, pageScore, lastVisitedTimestamp)
+  state = userModelState.updateLongTermInterests(state, pageScore, lastVisitedTimestamp)
+  state = userModelState.updateSERPIntent(state, pageScore, lastSearched)
 
   const catNames = priorData.names
 
@@ -584,7 +599,7 @@ const classifyPage = (state, action, windowId) => {
 
 const checkReadyAdServe = (state, windowId, forceP) => {  // around here is where you will check in with elph
   if (noop(state)) return state
-
+  console.log("IN")
   if (!forceP) {
     if (!foregroundP) { // foregroundP is sensible but questionable -SCL
       appActions.onUserModelLog('Ad not served', { reason: 'not in foreground' })
@@ -636,6 +651,7 @@ const checkReadyAdServe = (state, windowId, forceP) => {  // around here is wher
   const scores = um.deriveCategoryScores(history)
   const indexOfMax = um.vectorIndexOfMax(scores)
   const category = catNames[indexOfMax]
+
   if (!category) {
     appActions.onUserModelLog('Ad not served', { reason: 'no category at offset indexOfMax', indexOfMax })
 
@@ -685,12 +701,18 @@ const checkReadyAdServe = (state, windowId, forceP) => {  // around here is wher
 
   // For now we assume user context features and ads relevance features
 
-  const userFeatures = userModelState.getUserFeatures()
+  const userFeatures = userModelState.getUserFeatures(state)
+  appActions.onUserModelLog('user Features', { userFeatures })
+
+  let tvar = topicVariance(state)
+
   const adsRelevanceFeatures = extractAdsFeatures(adsNotSeen, userFeatures)
 
   const adsScores = scoreAdsRelevance(adsNotSeen, adsRelevanceFeatures)
 
   const selectedAd = sampleAd(adsNotSeen, adsScores)
+
+  appActions.onUserModelLog('Scored ads', { adsScores })
 
   const payload = adsNotSeen[selectedAd]
 
@@ -717,6 +739,7 @@ const checkReadyAdServe = (state, windowId, forceP) => {  // around here is wher
   appActions.onUserModelLog(notificationTypes.AD_SHOWN,
                             {category, winnerOverTime, selectedAd, notificationUrl, notificationText, advertiser, uuid, hierarchy})
 
+  console.log("AND OUT")
   return userModelState.appendAdShownToAdHistory(state)
 }
 

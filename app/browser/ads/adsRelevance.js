@@ -3,6 +3,21 @@
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
 
  'use strict'
+ const um = require('@brave-intl/bat-usermodel')
+
+ const notificationScore = (ads) => {
+    const notificationWeights = um.getNotificationsModel()
+    
+    // TODO: ptigas
+    // Features to add
+    // - Last time since you last saw a notification
+    // - Uninterrupted duration
+    const featureVector = {}
+
+    console.log(featureVector)
+
+    return um.notificationScore(featureVector, notificationWeights);
+ }
 
  const scoreAdsRelevance = (ads) => {
      const scores = {}
@@ -33,7 +48,6 @@
 }
 
 const sampleAd = (ads, scores) => {
-
     const normalizedScores = normalize(scores)
     const keys = Object.keys(scores)
 
@@ -50,7 +64,13 @@ const sampleAd = (ads, scores) => {
     return -1;
 }
 
+const extractAdsFeatures = (ads, userFeatures) => {
+
+    return ads
+}
+
 module.exports = {
     scoreAdsRelevance,
-    sampleAd
+    sampleAd,
+    extractAdsFeatures
 }

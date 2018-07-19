@@ -12,7 +12,7 @@ const appActions = require('../../../js/actions/appActions')
 
 // Constants
 const settings = require('../../../js/constants/settings')
-const userFeatures = require('../../../js/constants/userFeatures')
+const userFeatures = require('../../common/constants/userFeatures')
 
 // State
 const getSetting = require('../../../js/settings').getSetting
@@ -47,6 +47,24 @@ const historyRespectsRollingTimeConstraint = function (history, secondsWindow, a
   }
 
   return (recentCount <= allowableAdCount)
+}
+
+const incrementalWeightedAverage = (state, key, item, weight) => {
+  if (!userModelState.getAdEnabledValue(state)) return state
+
+  state = validateState(state)
+
+  let previous = state.getIn(key)
+
+  // it's undefined...
+  if (!Immutable.List.isList(previous)) previous = Immutable.List()
+
+  let v = new Array(previous.length)
+  for (let i = 0; i < previous.length; i++) {
+    v[i] = weight*previous[i] + item[i]
+  }
+
+  return state.setIn(key, v)
 }
 
 const appendToRingBufferUnderKey = (state, key, item, maxRows) => {
@@ -107,9 +125,52 @@ const userModelState = {
   // TODO: ptigas
   // Short history (15)
   // Long history (30 days)
+
+  resetShortTermInterests: (state) => {
+    // that should happen if it's too long since we did something
+    // change of session, change of context etc.
+  },
+
+  updateShortTermInterests: (state, pageScore) => {
+    const stateKey = [ 'userModel', 'shortTermInterests' ]
+    const wrappedScore = Immutable.List(pageScore)
+    //const average = a*stateKey + (1-a)*pageScore
+    
+    // long term history
+    return state//incrementalWeightedAverage(state, stateKey, )
+  },
+
+  updateLongTermInterests: (state, pageScore) => {
+    const stateKey = [ 'userModel', 'longTermInterests' ]
+    const wrappedScore = Immutable.List(pageScore)
+
+    // long term history
+    return state//incrementalWeightedAverage(state, stateKey, )
+  },
+
+  updateSERPIntent: (state, pageScore) => {
+    const stateKey = [ 'userModel', 'intent' ]
+    const wrappedScore = Immutable.List(pageScore)
+    // check if in search mode
+    // then check the pageScore and update the state
+    const searchMode = false
+    if (searchMode) {
+      return incrementalWeightedAverage(state, stateKey, pageScore, 1.0) 
+    } else {
+      // reset the intent
+      const v = new Array(pageScore.length)
+      for (let i in v) {
+        v[i] = 0.0
+      }
+      return state.setIn(stateKey, v)
+    }
+  },
+
   appendPageScoreToHistoryAndRotate: (state, pageScore) => {
     const stateKey = [ 'userModel', 'pageScoreHistory' ]
     const wrappedScore = Immutable.List(pageScore)
+
+    console.log(pageScore)
 
     return appendToRingBufferUnderKey(state, stateKey, wrappedScore, maxRowsInPageScoreHistory)
   },
@@ -189,6 +250,13 @@ const userModelState = {
   // TODO: ptigas
   getActivityScore: (state) => {
     state = validateState(state);
+  },
+
+  getShortTermInterest: (state, mutable = false) => {
+    state = validateState(state)
+    const interests = state.getIn([ 'userModel', 'shortTermInterests' ]) || []
+
+    return (mutable ? makeJS(interests) : makeImmutable(interests))
   },
 
   getPageScoreHistory: (state, mutable = false) => {
@@ -475,8 +543,29 @@ const userModelState = {
     return state.setIn([ 'userModel', 'adUUID' ], uuid)
   },
 
-  getUserFeatures: (state, uuid) => {
-    features = new Map()
+  getUserFeatures: (state) => {
+    const features = new Map()
+
+
+    // get history
+
+      
+    // create top and 2nd level topic vectors
+    let categoryHistogram = {}
+    let secCategoryHistogram = {}
+    for (let i in scores) {
+      const category = catNames[i]
+      const hierarchy = category.split('-')
+      for (let level in hierarchy) {
+        winnerOverTime = hierarchy.slice(0, hierarchy.length - level).join('-')
+        result = bundle.categories[winnerOverTime]
+        if (result) break
+      }
+
+      if (result) {
+      }
+    }
+    
 
     // the intent is influenced by search on google, bing, duckduckgo, etc.
     features.set(userFeatures.INTENT, 'intent')
@@ -486,6 +575,9 @@ const userModelState = {
 
     // average topic over the last 30 days
     features.set(userFeatures.LONG_INTEREST, 'longInterest')
+
+    
+    console.log("getUserFeatures: " + JSON.stringify(features))
 
     return features
   },
