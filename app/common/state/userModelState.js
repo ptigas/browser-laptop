@@ -22,7 +22,7 @@ const getSetting = require('../../../js/settings').getSetting
 const {makeImmutable, makeJS, isMap} = require('../../common/state/immutableUtil')
 const urlUtil = require('../../../js/lib/urlutil')
 
-const maxRowsInPageScoreHistory = 5
+const maxRowsInPageScoreHistory = 15
 const maxRowsInAdsShownHistory = 99
 
 const validateState = function (state) {
@@ -191,7 +191,7 @@ const userModelState = {
     const stateKey = [ 'userModel', 'pageScoreHistory' ]
     const wrappedScore = Immutable.List(pageScore)
 
-    console.log(pageScore)
+    // console.log(pageScore)
 
     return appendToRingBufferUnderKey(state, stateKey, wrappedScore, maxRowsInPageScoreHistory)
   },
@@ -249,7 +249,7 @@ const userModelState = {
       return state.setIn(['userModel', 'elphstring'], letter)
     }
     const longstr = tmp + letter
-    console.log(longstr)
+    // console.log(longstr)
     return state.setIn(['userModel', 'elphstring'], longstr)
   },
 

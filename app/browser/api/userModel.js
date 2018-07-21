@@ -152,7 +152,8 @@ const generateAdReportingEvent = (state, eventType, action) => {
 
         const now = underscore.now()
         if ((testingP) && (tabUrl === 'https://www.iab.com/') && (nextEasterEgg < now)) {
-          nextEasterEgg = now + (30 * 1000)
+          // nextEasterEgg = now + (30 * 1000)
+          nextEasterEgg = now + 1000
 
           state = checkReadyAdServe(state, windows.getActiveWindowId(), true)
         }
@@ -395,9 +396,16 @@ const topicVariance = (state) => { // this is a fairly random function; would ha
   let nback = history.length
   let scores = um.deriveCategoryScores(history)
   console.log("----")
-  console.log(JSON.stringify(history))
+  for (let i = 0; i < history.length; ++i){
+    console.log("HISTORY: ", i, "   ", history[i])
+  }
   console.log(JSON.stringify(scores))
-  console.log("/----")
+  console.log("----")
+
+
+  console.log(topicEntropy(state))
+
+
   let indexOfMax = um.vectorIndexOfMax(scores)
   let varval = nback / scores[indexOfMax]
   return valueToLowHigh(varval, 2.5) // 2.5 needs to be changed for ANY algo change here
@@ -408,9 +416,55 @@ const topicVariance = (state) => { // this is a fairly random function; would ha
 // Long history (30 days)
 
 // TODO: ptigas
-const topicEntropy = (state, window = 5) => {
+const topicEntropy = (state, window = 10) => {
   // return the entropy of the topics distribution over a window
   // try different windows (5, 15)
+
+  let history = userModelState.getPageScoreHistory(state, true)
+  let historyTopics = Immutable.List()
+  for (let i = 0; i < history.length; ++i){
+    historyTopics = historyTopics.push(Immutable.List(history[i]))
+  }
+
+  window = Math.min(window, history.length)
+  historyTopics = historyTopics.slice(history.length - window)
+
+  let historyTopicsLikelihood = Immutable.List()
+  for (let i = 0; i < window; ++i){
+    let tDist = historyTopics.get(i)
+
+    let tSum = tDist.reduce((a, b) => a + b)
+    if (tSum == 0){
+      historyTopicsLikelihood = historyTopicsLikelihood.push(tDist.map(tval => 0))
+    }
+    else{
+      historyTopicsLikelihood = historyTopicsLikelihood.push(tDist.map(tval => tval / tSum))
+    }
+  }
+
+  let topicSums = Immutable.List()
+  for (let j = 0; j < historyTopicsLikelihood.get(0).size; ++j){
+    let tSum = 0
+    for (let i = 0; i < window; ++i){
+      tSum += historyTopicsLikelihood.get(i).get(j)
+    }
+    topicSums = topicSums.push(tSum)
+  }
+
+  let tSumLikelihood = Immutable.List()
+  let allTopicSum = topicSums.reduce((a, b) => (a + b), 0)
+
+  tSumLikelihood = topicSums.map(tSum => tSum / window)
+
+  let entropy = 0
+  for (let i = 0; i < tSumLikelihood.size; ++i){
+    let a = tSumLikelihood.get(i)
+    if (a > 0){
+      entropy += -a*Math.log(a)
+    }
+  }
+  console.log(entropy)
+  return entropy
 }
 
 // TODO: ptigas
@@ -575,6 +629,7 @@ const classifyPage = (state, action, windowId) => {
   
   let now = new Date().getTime()
   let lastSearched = (now - userModelState.getLastSearchTime(state)) / 1000 // milliseconds
+
   state = userModelState.updateShortTermInterests(state, pageScore, 0)
   state = userModelState.updateLongTermInterests(state, pageScore, 0)
   state = userModelState.updateSERPIntent(state, pageScore, lastSearched)
@@ -831,6 +886,7 @@ const collectActivityAsNeeded = (state, adEnabled) => {
 
 const collectActivity = (state) => {
   if (noop(state)) return state
+  console.log("Collecting Activity")
 
   const path = '/v1/reports/' + userModelState.getAdUUID(state)
   const events = userModelState.getReportingEventQueue(state).toJS()

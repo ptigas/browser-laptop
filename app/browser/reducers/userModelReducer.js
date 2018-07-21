@@ -28,6 +28,8 @@ const userModelReducer = (state, action, immutableAction) => {
   switch (action.get('actionType')) {
     case appConstants.APP_SET_STATE: // performed once on app startup
       {
+        // state = userModelState.setUserModelValue(state, 'expired', false)
+
         if (getSetting(settings.ADS_ENABLED, state.get('settings'))) state = userModel.initialize(state, true)
         break
       }
@@ -200,7 +202,7 @@ const userModelReducer = (state, action, immutableAction) => {
       }
     case appConstants.APP_ON_USERMODEL_DISABLED:
       {
-        state = userModelState.setUserModelValue(state, 'expired', true)
+        //state = userModelState.setUserModelValue(state, 'expired', true)
         break
       }
     case appConstants.APP_ON_USERMODEL_EXPIRED:
