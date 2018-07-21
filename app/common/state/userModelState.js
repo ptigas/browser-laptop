@@ -4,6 +4,7 @@
 
 'use strict'
 
+const um = require('@brave-intl/bat-usermodel')
 const Immutable = require('immutable')
 const assert = require('assert')
 
@@ -55,21 +56,18 @@ const incrementalWeightedAverage = (state, key, item, weight) => {
   state = validateState(state)
 
   let previous = state.getIn(key)
-
-  console.log("PREVIOUS AVERAGE: " + JSON.stringify(item))
-
+  
   // it's undefined...
-  if (!Immutable.List.isList(previous)) {
-    return state.setIn(key, item)
+  if (!Immutable.List.isList(previous) || previous.length == 0) {
+    return state.setIn(key, Immutable.fromJS(item))
   }
 
-  let v = new Array(previous.length)
-  for (let i = 0; i < previous.length; i++) {
-    v[i] = weight*previous[i] + item[i]
-  }
-
-  console.log(JSON.stringify({key: key, val: v}))
-
+  let v = Immutable.fromJS(
+    item.map((a, i) => {
+      return a + weight*(previous.getIn([i]) || 0)
+    })
+  )
+  
   return state.setIn(key, v)
 }
 
@@ -113,6 +111,17 @@ const setReportingEventQueue = (state, queue) => {
   return state.setIn([ 'userModel', 'reportingEventQueue' ], queue)
 }
 
+const debugTopics = (pageScore) => {
+  const priorData = um.getPriorDataSync()
+  const catNames = priorData.names
+
+  const immediateMax = um.vectorIndexOfMax(pageScore)
+  console.log("SCORE : " + pageScore)
+  console.log("MAX : " + immediateMax)
+  const immediateWinner = catNames[immediateMax].split('-')
+  return immediateWinner
+}
+
 const userModelState = {
   setUserModelValue: (state, key, value) => {
     if (!key) return state
@@ -142,8 +151,10 @@ const userModelState = {
     const wrappedScore = Immutable.List(pageScore)
     //const average = a*stateKey + (1-a)*pageScore
     
-    // long term history
-    return state //incrementalWeightedAverage(state, stateKey, )
+    // short term history
+    const newState = incrementalWeightedAverage(state, stateKey, pageScore, 0.3) 
+    console.log("Short term topic: " + debugTopics(newState.getIn(stateKey)))
+    return newState
   },
 
   updateLongTermInterests: (state, pageScore, timeSinceLastEvent) => {
@@ -151,7 +162,9 @@ const userModelState = {
     const wrappedScore = Immutable.List(pageScore)
 
     // long term history
-    return state //incrementalWeightedAverage(state, stateKey, )
+    const newState = incrementalWeightedAverage(state, stateKey, pageScore, 1.0) 
+    console.log("Long term topic: " + debugTopics(newState.getIn(stateKey)))
+    return newState
   },
 
   updateSERPIntent: (state, pageScore, timeSinceLastEvent) => {
@@ -159,16 +172,19 @@ const userModelState = {
     const wrappedScore = Immutable.List(pageScore)
     
     const searchMode = userModelState.getSearchState(state)
+    let intent
     if (searchMode) {
-      return incrementalWeightedAverage(state, stateKey, pageScore, 1.0) 
+      intent = incrementalWeightedAverage(state, stateKey, pageScore, 1.0) 
     } else {
-      // reset the intent
-      const v = new Array(pageScore.length)
-      for (let i in v) {
-        v[i] = 0.0
-      }
-      return state.setIn(stateKey, v)
+      // reset the intent to 0
+      intent = state.setIn(stateKey, Immutable.fromJS(
+        new Array(pageScore.length).fill(0)
+      ))
     }
+    console.log("searchMode: " + searchMode)
+    console.log("intent: " + debugTopics(intent.getIn(stateKey)))
+
+    return intent
   },
 
   appendPageScoreToHistoryAndRotate: (state, pageScore) => {
