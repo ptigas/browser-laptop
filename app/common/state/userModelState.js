@@ -346,13 +346,14 @@ const userModelState = {
   },
 
   // user is visiting a shopping website
-  flagShoppingState: (state, url) => {
+  flagShoppingState: (state, url, score) => {
     if (!userModelState.getAdEnabledValue(state)) return state
 
     state = validateState(state)
 
     return state
           .setIn([ 'userModel', 'shopActivity' ], true)
+          .setIn([ 'userModel', 'shopIntent' ], score)
           .setIn([ 'userModel', 'shopUrl' ], url)
           .setIn([ 'userModel', 'lastShopTime' ], new Date().getTime())
   },
@@ -375,6 +376,35 @@ const userModelState = {
     state = validateState(state)
 
     return state.getIn([ 'userModel', 'lastShopTime' ])
+  },
+
+  getShoppingIntent: (state) => {
+    state = validateState(state)
+
+    return state.getIn([ 'userModel', 'shopIntent'])
+  },
+
+  updateWorkingState: (state, url, score) => {
+    if (!userModelState.getAdEnabledValue(state)) return state
+
+    state = validateState(state)
+
+    return state
+          .setIn([ 'userModel', 'workIntent' ], score)
+          .setIn([ 'userModel', 'workUrl' ], url)
+          .setIn([ 'userModel', 'lastWorkSiteTime' ], new Date().getTime())
+  },
+
+  getWorkingIntent: (state) => {
+    state = validateState(state)
+
+    return state.getIn([ 'userModel', 'workIntent'])
+  },
+
+  getLastWorkSiteTime: (state) => {
+    state = validateState(state)
+
+    return state.getIn([ 'userModel', 'lastWorkSiteTime' ])
   },
 
   flagUserBuyingSomething: (state, url) => {

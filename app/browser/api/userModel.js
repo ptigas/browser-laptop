@@ -41,6 +41,9 @@ const debugP = (process.env.NODE_ENV === 'test') || (process.env.LEDGER_VERBOSE 
 const testingP = true
 let nextEasterEgg = 0
 
+let decayTime = 5 //Seconds
+let decayRate = 0.9
+
 let initP
 let foregroundP
 let onceP
@@ -522,19 +525,73 @@ const extractURLKeywordsByField = (url, queryFields) => {
   return found
 }
 
+const workingSites = ['gmail', 'calendar.google', 'mail.google', 'slack']
+
+const testWorkingData = (state, url) => {
+  if (noop(state)) return state
+  const hostname = urlParse(url).hostname
+  
+  let score = userModelState.getWorkingIntent(state)
+
+  let now = new Date().getTime()
+  const lastWorked = (now - userModelState.getLastWorkSiteTime(state)) / 1000 // milliseconds => seconds
+
+  score = score * Math.pow(decayRate, Math.floor(lastWorked / decayTime))
+
+  let isWorkUrl = false
+  for (let i = 0; i < workingSites.length; ++i){
+    if (url.match(new RegExp(".*" + workingSites[i] + "[.].*" ))){
+      isWorkUrl = true
+    }
+  }
+  if (isWorkUrl) { //FIX: lfeng1999 - All shopping sites
+    
+    score = Math.min(1, score + 0.4) 
+
+    state = userModelState.updateWorkingState(state, url, score)
+  
+  } else { // do we need lastShopState? assumes amazon queries hostname changes
+    state = userModelState.updateWorkingState(state, url, score)
+  }
+  console.log("TESTING WORKING DATA")
+  console.log("WORKING SCORE: ", score)
+
+  return state
+}
+
+const shoppingSites = ['amazon', 'newegg', 'ebay', 'asos', 'boohoo', 'sainsburys', 'tesco', 'groceries.iceland', 'walmart', 'asda', 'expedia', 'skyscanner']
+
 const testShoppingData = (state, url) => {
   if (noop(state)) return state
   const hostname = urlParse(url).hostname
   const lastShopState = userModelState.getShoppingState(state)
+  
+  let score = userModelState.getShoppingIntent(state)
 
-  if (hostname === 'www.amazon.com') {
-    const score = 1.0   // eventually this will be more sophisticated than if(), but amazon is always a shopping destination
+  let now = new Date().getTime()
+  const lastShopped = (now - userModelState.getLastShoppingTime(state)) / 1000 // milliseconds => seconds
+
+  score = score * Math.pow(decayRate, Math.floor(lastShopped / decayTime))
+
+  let isShopUrl = false
+  for (let i = 0; i < shoppingSites.length; ++i){
+    if (url.match(new RegExp(".*" + shoppingSites[i] + "[.].*" ))){
+      isShopUrl = true
+    }
+  }
+  if (isShopUrl) { //FIX: lfeng1999 - All shopping sites
+    score = Math.min(1, score + 0.2) 
+
     state = userModelState.flagShoppingState(state, url, score)
     const keywords = extractURLKeywordsByField(url, amazonSearchQueryFields)
     console.log('keywords: ', keywords)
-  } else if (hostname !== 'www.amazon.com' && lastShopState) { // do we need lastShopState? assumes amazon queries hostname changes
+  
+  } else if (!isShopUrl && lastShopState) { // do we need lastShopState? assumes amazon queries hostname changes
     state = userModelState.unFlagShoppingState(state)
   }
+
+  console.log("TESTING SHOPPING FUNCTION")
+  console.log("SHOPPING SCORE: ", score)
 
   // TODO: ptigas
   // read the activity score for shopping
@@ -846,6 +903,7 @@ const confirmAdUUIDIfAdEnabled = (state, adEnabled) => {
 
 let collectActivityId
 
+
 const oneDay = (debugP ? 600 : 86400) * 1000
 const oneHour = (debugP ? 25 : 3600) * 1000
 const hackStagingOn = process.env.COLLECTOR_DEBUG === 'true'
@@ -997,6 +1055,7 @@ const getMethods = () => {
     confirmAdUUIDIfAdEnabled,
     testShoppingData,
     testSearchState,
+    testWorkingData,
     recordUnIdle,
     classifyPage,
     saveCachedInfo,
