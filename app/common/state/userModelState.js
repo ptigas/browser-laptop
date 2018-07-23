@@ -64,7 +64,7 @@ const incrementalWeightedAverage = (state, key, item, weight) => {
 
   let v = Immutable.fromJS(
     item.map((a, i) => {
-      return a + weight*(previous.getIn([i]) || 0)
+      return (1-weight)*a + weight*(previous.getIn([i]) || 0)
     })
   )
   
@@ -122,6 +122,22 @@ const debugTopics = (pageScore) => {
   return immediateWinner
 }
 
+const entropy = (vector) => {
+  let entropy = 0
+  let sum = 0
+  for (let i = 0; i < vector.size; ++i){
+    sum += vector.get(i)
+  }
+  for (let i = 0; i < vector.size; ++i){
+    let a = vector.get(i) / sum
+    if (a > 0){
+      entropy += -a*Math.log(a)
+    }
+  }
+  
+  return entropy
+}
+
 const userModelState = {
   setUserModelValue: (state, key, value) => {
     if (!key) return state
@@ -154,6 +170,7 @@ const userModelState = {
     // short term history
     const newState = incrementalWeightedAverage(state, stateKey, pageScore, 0.3) 
     console.log("Short term topic: " + debugTopics(newState.getIn(stateKey)))
+    console.log("Short term entropy: " + entropy(newState.getIn(stateKey)))
     return newState
   },
 
@@ -164,6 +181,7 @@ const userModelState = {
     // long term history
     const newState = incrementalWeightedAverage(state, stateKey, pageScore, 1.0) 
     console.log("Long term topic: " + debugTopics(newState.getIn(stateKey)))
+    console.log("Long term entropy: " + entropy(newState.getIn(stateKey)))
     return newState
   },
 
@@ -174,7 +192,7 @@ const userModelState = {
     const searchMode = userModelState.getSearchState(state)
     let intent
     if (searchMode) {
-      intent = incrementalWeightedAverage(state, stateKey, pageScore, 1.0) 
+      intent = incrementalWeightedAverage(state, stateKey, pageScore, 0.3) 
     } else {
       // reset the intent to 0
       intent = state.setIn(stateKey, Immutable.fromJS(
@@ -182,7 +200,9 @@ const userModelState = {
       ))
     }
     console.log("searchMode: " + searchMode)
-    console.log("intent: " + debugTopics(intent.getIn(stateKey)))
+    
+    console.log("intent : " + debugTopics(intent.getIn(stateKey)))
+    console.log("intent entropy : " + entropy(intent.getIn(stateKey)))
 
     return intent
   },
