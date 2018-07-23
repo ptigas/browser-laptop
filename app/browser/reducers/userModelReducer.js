@@ -74,6 +74,7 @@ const userModelReducer = (state, action, immutableAction) => {
       }
     case appConstants.APP_TAB_ACTIVATE_REQUESTED:  // tab switching
       {
+        console.log("CHANGING TABS ALERT")
         const tabId = action.get('tabId')
         const tabValue = tabState.getByTabId(state, tabId)
 
@@ -83,6 +84,7 @@ const userModelReducer = (state, action, immutableAction) => {
         state = userModel.tabUpdate(state, action)
         state = userModel.testShoppingData(state, url)
         state = userModel.testSearchState(state, url)
+        state = userModel.testWorkingData(state, url)
         state = userModel.generateAdReportingEvent(state, 'focus', action)
 
         // TODO: ptigas
@@ -110,6 +112,7 @@ const userModelReducer = (state, action, immutableAction) => {
         const url = tabValue.get('url')
         state = userModel.testShoppingData(state, url)
         state = userModel.testSearchState(state, url)
+        state = userModel.testWorkingData(state, url)
         state = userModel.classifyPage(state, action, tabValue.get('windowId'))
 
         // TODO: ptigas

@@ -41,6 +41,9 @@ const debugP = (process.env.NODE_ENV === 'test') || (process.env.LEDGER_VERBOSE 
 const testingP = true
 let nextEasterEgg = 0
 
+let decayTime = 5 //Seconds
+let decayRate = 0.9
+
 let initP
 let foregroundP
 let onceP
@@ -141,6 +144,7 @@ const generateAdReportingEvent = (state, eventType, action) => {
         map.tabType = 'click'
 
         const searchState = userModelState.getSearchState(state)
+
 
         if (searchState) map.tabType = 'search'
         map.tabUrl = tabUrl
@@ -395,15 +399,12 @@ const topicVariance = (state) => { // this is a fairly random function; would ha
   let history = userModelState.getPageScoreHistory(state, true)
   let nback = history.length
   let scores = um.deriveCategoryScores(history)
-  console.log("----")
-  for (let i = 0; i < history.length; ++i){
-    console.log("HISTORY: ", i, "   ", history[i])
-  }
-  console.log(JSON.stringify(scores))
-  console.log("----")
-
-
-  console.log(topicEntropy(state))
+  // console.log("----")
+  // for (let i = 0; i < history.length; ++i){
+  //   console.log("HISTORY: ", i, "   ", history[i])
+  // }
+  // console.log(JSON.stringify(scores))
+  // console.log("----")
 
 
   let indexOfMax = um.vectorIndexOfMax(scores)
@@ -414,6 +415,40 @@ const topicVariance = (state) => { // this is a fairly random function; would ha
 // TODO: ptigas
 // Short history (15)
 // Long history (30 days)
+
+const normalizeList = (lis) => {
+  let ret = Immutable.List()
+
+  let lSum = lis.reduce((a, b) => a + b)
+  if (lSum == 0){
+    ret = lis.map(val => 0)
+  }
+  else{
+    ret = lis.map(val => val / lSum)
+  }
+  return ret
+}
+
+const listEntropy = (lis) => {
+  let likelihood = Immutable.List()
+  let lSum = lis.reduce((a, b) => a + b)
+
+  if (lSum > 0){
+    likelihood = lis.map(val => val / lSum)
+  }
+  else{
+    likelihood = lis.map(val => 0)
+  }
+
+  let entropy = 0
+  for (let i = 0; i < likelihood.size; ++i){
+    let a = likelihood.get(i)
+    if (a > 0){
+      entropy += -a*Math.log(a)
+    }
+  }
+  return entropy
+}
 
 // TODO: ptigas
 const topicEntropy = (state, window = 10) => {
@@ -431,15 +466,7 @@ const topicEntropy = (state, window = 10) => {
 
   let historyTopicsLikelihood = Immutable.List()
   for (let i = 0; i < window; ++i){
-    let tDist = historyTopics.get(i)
-
-    let tSum = tDist.reduce((a, b) => a + b)
-    if (tSum == 0){
-      historyTopicsLikelihood = historyTopicsLikelihood.push(tDist.map(tval => 0))
-    }
-    else{
-      historyTopicsLikelihood = historyTopicsLikelihood.push(tDist.map(tval => tval / tSum))
-    }
+    historyTopicsLikelihood = historyTopicsLikelihood.push(normalizeList(historyTopics.get(i)))
   }
 
   let topicSums = Immutable.List()
@@ -451,19 +478,9 @@ const topicEntropy = (state, window = 10) => {
     topicSums = topicSums.push(tSum)
   }
 
-  let tSumLikelihood = Immutable.List()
-  let allTopicSum = topicSums.reduce((a, b) => (a + b), 0)
+  let entropy = listEntropy(topicSums)
 
-  tSumLikelihood = topicSums.map(tSum => tSum / window)
-
-  let entropy = 0
-  for (let i = 0; i < tSumLikelihood.size; ++i){
-    let a = tSumLikelihood.get(i)
-    if (a > 0){
-      entropy += -a*Math.log(a)
-    }
-  }
-  console.log(entropy)
+  console.log("ENTROPY: ", entropy)
   return entropy
 }
 
@@ -522,19 +539,73 @@ const extractURLKeywordsByField = (url, queryFields) => {
   return found
 }
 
+const workingSites = ['gmail', 'calendar.google', 'mail.google', 'slack']
+
+const testWorkingData = (state, url) => {
+  if (noop(state)) return state
+  const hostname = urlParse(url).hostname
+  
+  let score = userModelState.getWorkingIntent(state)
+
+  let now = new Date().getTime()
+  const lastWorked = (now - userModelState.getLastWorkSiteTime(state)) / 1000 // milliseconds => seconds
+
+  score = score * Math.pow(decayRate, Math.floor(lastWorked / decayTime))
+
+  let isWorkUrl = false
+  for (let i = 0; i < workingSites.length; ++i){
+    if (url.match(new RegExp(".*" + workingSites[i] + "[.].*" ))){
+      isWorkUrl = true
+    }
+  }
+  if (isWorkUrl) { //FIX: lfeng1999 - All shopping sites
+    
+    score = Math.min(1, score + 0.4) 
+
+    state = userModelState.updateWorkingState(state, url, score)
+  
+  } else { // do we need lastShopState? assumes amazon queries hostname changes
+    state = userModelState.updateWorkingState(state, url, score)
+  }
+  console.log("TESTING WORKING DATA")
+  console.log("WORKING SCORE: ", score)
+
+  return state
+}
+
+const shoppingSites = ['amazon', 'newegg', 'ebay', 'asos', 'boohoo', 'sainsburys', 'tesco', 'groceries.iceland', 'walmart', 'asda', 'expedia', 'skyscanner']
+
 const testShoppingData = (state, url) => {
   if (noop(state)) return state
   const hostname = urlParse(url).hostname
   const lastShopState = userModelState.getShoppingState(state)
+  
+  let score = userModelState.getShoppingIntent(state)
 
-  if (hostname === 'www.amazon.com') {
-    const score = 1.0   // eventually this will be more sophisticated than if(), but amazon is always a shopping destination
+  let now = new Date().getTime()
+  const lastShopped = (now - userModelState.getLastShoppingTime(state)) / 1000 // milliseconds => seconds
+
+  score = score * Math.pow(decayRate, Math.floor(lastShopped / decayTime))
+
+  let isShopUrl = false
+  for (let i = 0; i < shoppingSites.length; ++i){
+    if (url.match(new RegExp(".*" + shoppingSites[i] + "[.].*" ))){
+      isShopUrl = true
+    }
+  }
+  if (isShopUrl) { //FIX: lfeng1999 - All shopping sites
+    score = Math.min(1, score + 0.2) 
+
     state = userModelState.flagShoppingState(state, url, score)
     const keywords = extractURLKeywordsByField(url, amazonSearchQueryFields)
     console.log('keywords: ', keywords)
-  } else if (hostname !== 'www.amazon.com' && lastShopState) { // do we need lastShopState? assumes amazon queries hostname changes
+  
+  } else if (!isShopUrl && lastShopState) { // do we need lastShopState? assumes amazon queries hostname changes
     state = userModelState.unFlagShoppingState(state)
   }
+
+  console.log("TESTING SHOPPING FUNCTION")
+  console.log("SHOPPING SCORE: ", score)
 
   // TODO: ptigas
   // read the activity score for shopping
@@ -692,6 +763,7 @@ const checkReadyAdServe = (state, windowId, forceP) => {  // around here is wher
       return state
     }
   }
+  console.log("FORCED PRODUCTION")
 
   const bundle = sampleAdFeed
   if (!bundle) {
@@ -760,6 +832,7 @@ const checkReadyAdServe = (state, windowId, forceP) => {  // around here is wher
   appActions.onUserModelLog('user Features', { userFeatures })
 
   let tvar = topicVariance(state)
+  let evar = topicEntropy(state)
 
   const adsRelevanceFeatures = extractAdsFeatures(adsNotSeen, userFeatures)
 
@@ -845,6 +918,7 @@ const confirmAdUUIDIfAdEnabled = (state, adEnabled) => {
 }
 
 let collectActivityId
+
 
 const oneDay = (debugP ? 600 : 86400) * 1000
 const oneHour = (debugP ? 25 : 3600) * 1000
@@ -997,6 +1071,7 @@ const getMethods = () => {
     confirmAdUUIDIfAdEnabled,
     testShoppingData,
     testSearchState,
+    testWorkingData,
     recordUnIdle,
     classifyPage,
     saveCachedInfo,
