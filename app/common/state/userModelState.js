@@ -406,6 +406,12 @@ const userModelState = {
 
     return state.getIn([ 'userModel', 'lastWorkSiteTime' ])
   },
+  
+  getWorkingIntent: (state) => {
+    state = validateState(state)
+
+    return state.getIn([ 'userModel', 'workIntent' ])
+  },
 
   flagUserBuyingSomething: (state, url) => {
     if (!userModelState.getAdEnabledValue(state)) return state

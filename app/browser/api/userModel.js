@@ -145,6 +145,7 @@ const generateAdReportingEvent = (state, eventType, action) => {
 
         const searchState = userModelState.getSearchState(state)
 
+
         if (searchState) map.tabType = 'search'
         map.tabUrl = tabUrl
 
@@ -398,15 +399,12 @@ const topicVariance = (state) => { // this is a fairly random function; would ha
   let history = userModelState.getPageScoreHistory(state, true)
   let nback = history.length
   let scores = um.deriveCategoryScores(history)
-  console.log("----")
-  for (let i = 0; i < history.length; ++i){
-    console.log("HISTORY: ", i, "   ", history[i])
-  }
-  console.log(JSON.stringify(scores))
-  console.log("----")
-
-
-  console.log(topicEntropy(state))
+  // console.log("----")
+  // for (let i = 0; i < history.length; ++i){
+  //   console.log("HISTORY: ", i, "   ", history[i])
+  // }
+  // console.log(JSON.stringify(scores))
+  // console.log("----")
 
 
   let indexOfMax = um.vectorIndexOfMax(scores)
@@ -417,6 +415,40 @@ const topicVariance = (state) => { // this is a fairly random function; would ha
 // TODO: ptigas
 // Short history (15)
 // Long history (30 days)
+
+const normalizeList = (lis) => {
+  let ret = Immutable.List()
+
+  let lSum = lis.reduce((a, b) => a + b)
+  if (lSum == 0){
+    ret = lis.map(val => 0)
+  }
+  else{
+    ret = lis.map(val => val / lSum)
+  }
+  return ret
+}
+
+const listEntropy = (lis) => {
+  let likelihood = Immutable.List()
+  let lSum = lis.reduce((a, b) => a + b)
+
+  if (lSum > 0){
+    likelihood = lis.map(val => val / lSum)
+  }
+  else{
+    likelihood = lis.map(val => 0)
+  }
+
+  let entropy = 0
+  for (let i = 0; i < likelihood.size; ++i){
+    let a = likelihood.get(i)
+    if (a > 0){
+      entropy += -a*Math.log(a)
+    }
+  }
+  return entropy
+}
 
 // TODO: ptigas
 const topicEntropy = (state, window = 10) => {
@@ -434,15 +466,7 @@ const topicEntropy = (state, window = 10) => {
 
   let historyTopicsLikelihood = Immutable.List()
   for (let i = 0; i < window; ++i){
-    let tDist = historyTopics.get(i)
-
-    let tSum = tDist.reduce((a, b) => a + b)
-    if (tSum == 0){
-      historyTopicsLikelihood = historyTopicsLikelihood.push(tDist.map(tval => 0))
-    }
-    else{
-      historyTopicsLikelihood = historyTopicsLikelihood.push(tDist.map(tval => tval / tSum))
-    }
+    historyTopicsLikelihood = historyTopicsLikelihood.push(normalizeList(historyTopics.get(i)))
   }
 
   let topicSums = Immutable.List()
@@ -454,19 +478,9 @@ const topicEntropy = (state, window = 10) => {
     topicSums = topicSums.push(tSum)
   }
 
-  let tSumLikelihood = Immutable.List()
-  let allTopicSum = topicSums.reduce((a, b) => (a + b), 0)
+  let entropy = listEntropy(topicSums)
 
-  tSumLikelihood = topicSums.map(tSum => tSum / window)
-
-  let entropy = 0
-  for (let i = 0; i < tSumLikelihood.size; ++i){
-    let a = tSumLikelihood.get(i)
-    if (a > 0){
-      entropy += -a*Math.log(a)
-    }
-  }
-  console.log(entropy)
+  console.log("ENTROPY: ", entropy)
   return entropy
 }
 
@@ -749,6 +763,7 @@ const checkReadyAdServe = (state, windowId, forceP) => {  // around here is wher
       return state
     }
   }
+  console.log("FORCED PRODUCTION")
 
   const bundle = sampleAdFeed
   if (!bundle) {
@@ -817,6 +832,7 @@ const checkReadyAdServe = (state, windowId, forceP) => {  // around here is wher
   appActions.onUserModelLog('user Features', { userFeatures })
 
   let tvar = topicVariance(state)
+  let evar = topicEntropy(state)
 
   const adsRelevanceFeatures = extractAdsFeatures(adsNotSeen, userFeatures)
 
