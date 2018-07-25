@@ -120,6 +120,7 @@
     "lru-cache": "^1.0.0",
     "nan": "2.8.0",
     "niceware": "^1.0.4",
+    "node-abi": "^2.4.3",
     "parse-torrent": "^5.8.1",
     "prettier-bytes": "^1.0.3",
     "prop-types": "^15.5.6",

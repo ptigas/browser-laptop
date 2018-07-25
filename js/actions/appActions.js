@@ -1959,6 +1959,7 @@ const appActions = {
   },
 
   onUserModelLog: function (eventName, data) {
+    console.log(eventName + "  " + JSON.stringify(data))
     dispatch({
       actionType: appConstants.APP_ON_USERMODEL_LOG,
       eventName,
