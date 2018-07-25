@@ -13,7 +13,6 @@ const appActions = require('../../../js/actions/appActions')
 
 // Constants
 const settings = require('../../../js/constants/settings')
-const userFeatures = require('../../common/constants/userFeatures')
 
 // State
 const getSetting = require('../../../js/settings').getSetting
@@ -116,8 +115,6 @@ const debugTopics = (pageScore) => {
   const catNames = priorData.names
 
   const immediateMax = um.vectorIndexOfMax(pageScore)
-  console.log("SCORE : " + pageScore)
-  console.log("MAX : " + immediateMax)
   const immediateWinner = catNames[immediateMax].split('-')
   return immediateWinner
 }
@@ -128,6 +125,7 @@ const entropy = (vector) => {
   for (let i = 0; i < vector.size; ++i){
     sum += vector.get(i)
   }
+
   for (let i = 0; i < vector.size; ++i){
     let a = vector.get(i) / sum
     if (a > 0){
@@ -157,9 +155,12 @@ const userModelState = {
   // Short history (15)
   // Long history (30 days)
 
-  resetShortTermInterests: (state) => {
-    // that should happen if it's too long since we did something
-    // change of session, change of context etc.
+  resetShortTermInterestsAndIntent: (state) => {
+    return state.setIn([ 'userModel', 'shortTermInterests' ], Immutable.fromJS(
+      new Array()
+    )).setIn([ 'userModel', 'intent' ], Immutable.fromJS(
+      new Array()
+    ))
   },
 
   updateShortTermInterests: (state, pageScore, timeSinceLastEvent) => {
@@ -618,26 +619,6 @@ const userModelState = {
 
   setAdUUID: (state, uuid) => {
     return state.setIn([ 'userModel', 'adUUID' ], uuid)
-  },
-
-  getUserFeatures: (state) => {
-    const features = new Map()
-
-    // get history
-
-    // the intent is influenced by search on google, bing, duckduckgo, etc.
-    features.set(userFeatures.INTENT, 'intent')
-
-    // the last 10 tabs
-    features.set(userFeatures.SHORT_INTEREST, 'shortInterest')
-
-    // average topic over the last 30 days
-    features.set(userFeatures.LONG_INTEREST, 'longInterest')
-
-    
-    console.log("getUserFeatures: " + JSON.stringify(features))
-
-    return features
   },
 
   appendToUserSurveyQueue: (state, survey) => {

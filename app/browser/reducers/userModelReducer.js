@@ -81,11 +81,9 @@ const userModelReducer = (state, action, immutableAction) => {
         if ((tabValue == null) || (tabValue.get('incognito') === true)) break
 
         const url = tabValue.get('url')
-        state = userModel.tabUpdate(state, action)
-        state = userModel.testShoppingData(state, url)
-        state = userModel.testSearchState(state, url)
-        state = userModel.testWorkingData(state, url)
-        state = userModel.generateAdReportingEvent(state, 'focus', action)
+        const windowId = tabValue.get('windowId')
+
+        state = userModel.onTabUpdate(windowId, tabId, url, action, state)
 
         // TODO: ptigas
         // test activity
@@ -106,22 +104,15 @@ const userModelReducer = (state, action, immutableAction) => {
       {
         const tabId = action.get('tabId')
         const tabValue = tabState.getByTabId(state, tabId)
-
+        
         if ((tabValue == null) || (tabValue.get('incognito') === true)) break
 
         const url = tabValue.get('url')
-        state = userModel.testShoppingData(state, url)
-        state = userModel.testSearchState(state, url)
-        state = userModel.testWorkingData(state, url)
-        state = userModel.classifyPage(state, action, tabValue.get('windowId'))
+        const windowId = tabValue.get('windowId')
 
-        // TODO: ptigas
-        // change state to set session id
+        state = userModel.onDataAvailable(windowId, tabId, url, action, state)
 
-        // TODO: ptigas
-        // get intent => classification + if it's a search engine result assign it to intent
-
-//        state = userModel.debouncedTimingUpdate(state, url)  // correct place for most updates; checks for debounce
+//      state = userModel.debouncedTimingUpdate(state, url)  // correct place for most updates; checks for debounce
         break
       }
     case appConstants.APP_SHUTTING_DOWN:

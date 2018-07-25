@@ -4,8 +4,11 @@
 
  const userFeatures = {
     INTENT: 'intent',
+    INTENT_ENTROPY: 'intent-entropy',
     SHORT_INTEREST: 'short-interest',
+    SHORT_INTEREST_ENTROPY: 'short-interest-entropy',
     LONG_INTEREST: 'long-interest',
+    LONG_INTEREST_ENTROPY: 'long-interest-entropy'
   }
   
   module.exports = userFeatures

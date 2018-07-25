@@ -15,6 +15,8 @@ const uuidv4 = require('uuid/v4')
 const app = require('electron').app
 const os = require('os')
 
+const userFeatures = require('../../common/constants/userFeatures')
+
 // Actions
 const appActions = require('../../../js/actions/appActions')
 
@@ -160,9 +162,7 @@ const generateAdReportingEvent = (state, eventType, action) => {
           nextEasterEgg = now + 1000
 
           state = checkReadyAdServe(state, windows.getActiveWindowId(), true)
-        }
-
-        if ((testingP) && (tabUrl === 'https://ptigas.com/')) {
+        } else {
           state = checkReadyAdServe(state, windows.getActiveWindowId(), true)
         }
 
@@ -282,6 +282,9 @@ const initialize = (state, adEnabled) => {
 
   state = processLocales(state, um.getLocalesSync())
 
+  // reset short term interests and intent
+  state = userModelState.resetShortTermInterestsAndIntent(state)
+
   return confirmAdUUIDIfAdEnabled(state, adEnabled)
 }
 
@@ -314,6 +317,19 @@ const removeAllHistory = (state) => {
 
 const saveCachedInfo = (state) => {
   return state
+}
+
+const adsList = (ads) => {
+  let res = []
+  for (let cat in ads['categories']) {
+      const adsWithinCat = ads['categories'][cat]
+      for (let id in adsWithinCat) {
+          let ad = adsWithinCat[id]
+          ad['category'] = cat
+          res.push(ad)
+      }
+  }
+  return res
 }
 
 // begin timing related pieces
@@ -437,7 +453,7 @@ const listEntropy = (lis) => {
     likelihood = lis.map(val => val / lSum)
   }
   else{
-    likelihood = lis.map(val => 0)
+    return 1
   }
 
   let entropy = 0
@@ -447,6 +463,7 @@ const listEntropy = (lis) => {
       entropy += -a*Math.log(a)
     }
   }
+
   return entropy
 }
 
@@ -676,30 +693,44 @@ const goAheadAndShowTheAd = (windowId, notificationTitle, notificationText, noti
   )
 }
 
-const classifyPage = (state, action, windowId) => {
+const classifyPage = (state, action, windowId, tabId) => {
   if (noop(state)) return state
 
   const url = action.getIn([ 'scrapedData', 'url' ])
   let headers = action.getIn([ 'scrapedData', 'headers' ])
   let body = action.getIn([ 'scrapedData', 'body' ])
 
-  if (!headers) return state
+  if (!headers) {
+    console.log("No headers, returning!")
+    return state
+  }
 
   headers = cleanLines(headers)
   body = cleanLines(body)
 
   let words = headers.concat(body)
 
-  if (words.length < um.minimumWordsToClassify) return state
+  let now = new Date().getTime()
+  let lastSearched = (now - userModelState.getLastSearchTime(state)) / 1000 // milliseconds
 
-  if (words.length > um.maximumWordsToClassify) words = words.slice(0, um.maximumWordsToClassify)
+  if (words.length < um.minimumWordsToClassify) {
+
+    // since we cannot infer confident scores, reduce 
+    // confidence on the short term interests and intent as well 
+    const pageScore = new Array(priorData.names.length).fill(0)
+    state = userModelState.updateShortTermInterests(state, pageScore, 0)
+    state = userModelState.updateSERPIntent(state, pageScore, lastSearched)
+
+    return state
+  }
+  
+  if (words.length > um.maximumWordsToClassify) {
+    words = words.slice(0, um.maximumWordsToClassify)
+  }
 
   const pageScore = um.NBWordVec(words, matrixData, priorData)
 
   state = userModelState.appendPageScoreToHistoryAndRotate(state, pageScore)
-  
-  let now = new Date().getTime()
-  let lastSearched = (now - userModelState.getLastSearchTime(state)) / 1000 // milliseconds
 
   state = userModelState.updateShortTermInterests(state, pageScore, 0)
   state = userModelState.updateLongTermInterests(state, pageScore, 0)
@@ -721,6 +752,24 @@ const classifyPage = (state, action, windowId) => {
   appActions.onUserModelLog('Site visited', { url, immediateWinner, winnerOverTime })
 
   return state
+}
+
+const getUserFeatures = (state) => {
+  const features = new Map()
+
+  // get history
+
+  // the intent is influenced by search on google, bing, duckduckgo, etc.
+  features.set(userFeatures.INTENT, state.getIn([ 'userModel', 'intent' ]) || [])
+  features.set(userFeatures.INTENT_ENTROPY, listEntropy(state.getIn([ 'userModel', 'intent' ]) || []))
+  
+  features.set(userFeatures.SHORT_INTEREST, state.getIn([ 'userModel', 'shortTermInterests' ]) || [])
+  features.set(userFeatures.SHORT_INTEREST_ENTROPY, listEntropy(state.getIn([ 'userModel', 'shortTermInterests' ]) || []))
+
+  features.set(userFeatures.LONG_INTEREST, state.getIn([ 'userModel', 'longTermInterests' ]) || [])
+  features.set(userFeatures.LONG_INTEREST_ENTROPY, listEntropy(state.getIn([ 'userModel', 'longTermInterests' ]) || []))
+
+  return features
 }
 
 const checkReadyAdServe = (state, windowId, forceP) => {  // around here is where you will check in with elph
@@ -766,6 +815,8 @@ const checkReadyAdServe = (state, windowId, forceP) => {  // around here is wher
   console.log("FORCED PRODUCTION")
 
   const bundle = sampleAdFeed
+  const adsListWithCategories = adsList(bundle)
+
   if (!bundle) {
     appActions.onUserModelLog('Ad not served', { reason: 'no ad catalog' })
 
@@ -800,7 +851,7 @@ const checkReadyAdServe = (state, windowId, forceP) => {  // around here is wher
     return state
   }
 
-
+  // get ads and categories
   const seen = userModelState.getAdUUIDSeen(state)
 
   const adsSeen = result.filter(x => seen.get(x.uuid))
@@ -828,21 +879,21 @@ const checkReadyAdServe = (state, windowId, forceP) => {  // around here is wher
 
   // For now we assume user context features and ads relevance features
 
-  const userFeatures = userModelState.getUserFeatures(state)
+  const userFeatures = getUserFeatures(state)
   appActions.onUserModelLog('user Features', { userFeatures })
 
   let tvar = topicVariance(state)
   let evar = topicEntropy(state)
 
-  const adsRelevanceFeatures = extractAdsFeatures(adsNotSeen, userFeatures)
+  const adsRelevanceFeatures = extractAdsFeatures(adsListWithCategories, userFeatures)
 
-  const adsScores = scoreAdsRelevance(adsNotSeen, adsRelevanceFeatures)
+  const adsScores = scoreAdsRelevance(adsRelevanceFeatures)
 
-  const selectedAd = sampleAd(adsNotSeen, adsScores)
+  const selectedAd = sampleAd(adsScores)
 
   appActions.onUserModelLog('Scored ads', { adsScores })
 
-  const payload = adsNotSeen[selectedAd]
+  const payload = adsListWithCategories[selectedAd]
 
   if (!payload) {
     appActions.onUserModelLog('Ad not served',
@@ -1060,6 +1111,33 @@ const privateTest = () => {
   return 1
 }
 
+// MIGRATION REFACTORING
+const onDataAvailable = (windowId, tabId, url, action, state) => {
+  state = testShoppingData(state, url)
+  state = testSearchState(state, url)
+  state = testWorkingData(state, url)
+  state = classifyPage(state, action, windowId, tabId)
+
+  // TODO: ptigas
+  // change state to set session id
+
+  return state
+}
+
+const onTabUpdate = (windowId, tabId, url, action, state) => {
+  state = tabUpdate(state, action)
+  state = testShoppingData(state, url)
+  state = testSearchState(state, url)
+  state = testWorkingData(state, url)
+  state = generateAdReportingEvent(state, 'focus', action)
+
+  return state
+}
+
+const onSessionReset = (windowId, tabId, url, state) => {
+  return state
+}
+
 const getMethods = () => {
   const publicMethods = {
     initialize,
@@ -1081,7 +1159,11 @@ const getMethods = () => {
     downloadSurveys,
     retrieveSSID,
     debouncedTimingUpdate,
-    checkReadyAdServe
+    checkReadyAdServe,
+
+    onTabUpdate,
+    onDataAvailable,
+    onSessionReset
   }
 
   let privateMethods = {}
