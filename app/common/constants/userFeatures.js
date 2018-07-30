@@ -8,7 +8,9 @@
     SHORT_INTEREST: 'short-interest',
     SHORT_INTEREST_ENTROPY: 'short-interest-entropy',
     LONG_INTEREST: 'long-interest',
-    LONG_INTEREST_ENTROPY: 'long-interest-entropy'
+    LONG_INTEREST_ENTROPY: 'long-interest-entropy',
+    PAGE_SCORE_AVERAGE: 'page-score-average',
+    PAGE_SCORE_ENTROPY: 'page-score-entropy'
   }
   
   module.exports = userFeatures
