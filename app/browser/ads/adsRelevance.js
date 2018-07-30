@@ -16,8 +16,6 @@
     // - Uninterrupted duration
     const featureVector = {}
 
-    console.log(featureVector)
-
     return um.notificationScore(featureVector, notificationWeights);
  }
 
@@ -25,17 +23,40 @@ const scoreAdsRelevance = (adsFeatures) => {
     const scores = []
     const model = um.getAdsRelevanceModel()
 
+    let n = 0;
     for (let i = 0; i < adsFeatures.length; i++ ) {
         const score = um.logisticRegression(adsFeatures[i], model)
+        
         if (score > 0.5) {
-            console.log("YEY: " + score)
-            console.log(adsFeatures[i])
+            n += 1
             scores.push(score)
         } else {
             scores.push(0)
         }
     }
+
+    console.log(n + " ads got into the lottery")
  
+    return scores
+}
+
+const logit = (x) => { return Math.log(x/(1-x))}
+
+const explain = (featureVector) => {
+    const model = um.getAdsRelevanceModel()
+    const score = logit(um.logisticRegression(featureVector, model))
+    
+    const scores = {}
+    let sum = 0.0
+    const bias = model[0]
+    for (let key of featureVector.keys()) {
+        const v = model[key]*featureVector.get(key)
+        if (v > 0.0) {
+            scores[key] = (v+bias)/score
+            sum += ((v+bias)/score)
+        }
+    }
+
     return scores
 }
  
@@ -90,7 +111,7 @@ const vector2topic = (pageScore) => {
 
 const categoryMatchScore = (adCategory, interest, entropy) => {
     // if entropy is very high then return no match
-    if (entropy >= 0.8) {
+    if (entropy >= 0.4) {
         return 0.0
     }
 
@@ -141,6 +162,15 @@ const extractAdFeature = (ad, userFeatureVector) => {
         )
     )
 
+    featureVector.set(
+        'winning_over_time_match',
+        categoryMatchScore(
+            ad['category'], 
+            vector2topic(userFeatureVector.get(userFeatures.PAGE_SCORE_AVERAGE)),
+            userFeatureVector.get(userFeatures.PAGE_SCORE_ENTROPY)
+        )        
+    )
+
     return featureVector
 }
 
@@ -153,7 +183,8 @@ const extractAdsFeatures = (ads, userFeatureVector) => {
     console.log("Intent: " + vector2topic(userFeatureVector.get(userFeatures.INTENT)) + " entropy: " + userFeatureVector.get(userFeatures.INTENT_ENTROPY))
     console.log("Short: " + vector2topic(userFeatureVector.get(userFeatures.SHORT_INTEREST)) + " entropy: " + userFeatureVector.get(userFeatures.SHORT_INTEREST_ENTROPY))
     console.log("Long: " + vector2topic(userFeatureVector.get(userFeatures.LONG_INTEREST)) + " entropy: " + userFeatureVector.get(userFeatures.LONG_INTEREST_ENTROPY))
-    
+    console.log("Winning: " + vector2topic(userFeatureVector.get(userFeatures.PAGE_SCORE_AVERAGE)) + " entropy: " + userFeatureVector.get(userFeatures.PAGE_SCORE_ENTROPY))
+
     for (let id in ads) {
         features.push(extractAdFeature(ads[id], userFeatureVector))
     }
@@ -166,5 +197,6 @@ const extractAdsFeatures = (ads, userFeatureVector) => {
 module.exports = {
     scoreAdsRelevance,
     sampleAd,
-    extractAdsFeatures
+    extractAdsFeatures,
+    explain
 }
