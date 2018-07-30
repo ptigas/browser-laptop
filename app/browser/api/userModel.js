@@ -37,7 +37,7 @@ const urlParse2 = require('url').parse
 const roundtrip = require('./ledger').roundtrip
 
 // Ads relevance helpers
-const { scoreAdsRelevance, sampleAd, extractAdsFeatures } = require('../ads/adsRelevance')
+const { scoreAdsRelevance, sampleAd, extractAdsFeatures, explain } = require('../ads/adsRelevance')
 
 const debugP = (process.env.NODE_ENV === 'test') || (process.env.LEDGER_VERBOSE === 'true')
 const testingP = true
@@ -99,14 +99,13 @@ const generateAdReportingEvent = (state, eventType, action) => {
               map.notificationType = translate[result] || result
 
               if (map.notificationType === 'clicked' || map.notificationType === 'dismissed') {
-                state = userModelState.recordAdUUIDSeen(state, uuid)
+                state = userModelState.recordAdUUIDSeen(state, uuid, new Date().getTime())
               }
 //              uncomment testing SCL
 //              if (map.notificationType === 'clicked' || map.notificationType === 'dismissed' || map.notificationType === 'timeout') {
 //                const translateElph = { 'clicked': 'z', 'dismissed': 'y', 'timeout': 'y' } // refers to elph alphabetizer
 //                state = updateTimingModel(state, translateElph[map.notificationType])
 //              }
-
               break
             }
 
@@ -428,10 +427,6 @@ const topicVariance = (state) => { // this is a fairly random function; would ha
   return valueToLowHigh(varval, 2.5) // 2.5 needs to be changed for ANY algo change here
 }
 
-// TODO: ptigas
-// Short history (15)
-// Long history (30 days)
-
 const normalizeList = (lis) => {
   let ret = Immutable.List()
 
@@ -446,11 +441,15 @@ const normalizeList = (lis) => {
 }
 
 const listEntropy = (lis) => {
+  if (lis.length == 0) {
+    return 1.0
+  }    
+
   let likelihood = Immutable.List()
   let lSum = lis.reduce((a, b) => a + b)
-
+  
   if (lSum > 0){
-    likelihood = lis.map(val => val / lSum)
+    likelihood = Immutable.fromJS(lis.map(val => val / lSum))
   }
   else{
     return 1
@@ -467,7 +466,6 @@ const listEntropy = (lis) => {
   return entropy
 }
 
-// TODO: ptigas
 const topicEntropy = (state, window = 10) => {
   // return the entropy of the topics distribution over a window
   // try different windows (5, 15)
@@ -497,13 +495,7 @@ const topicEntropy = (state, window = 10) => {
 
   let entropy = listEntropy(topicSums)
 
-  console.log("ENTROPY: ", entropy)
   return entropy
-}
-
-// TODO: ptigas
-const topicProbabilities = (state, window = 5) => {
-
 }
 
 // TODO: ptigas
@@ -556,10 +548,11 @@ const extractURLKeywordsByField = (url, queryFields) => {
   return found
 }
 
-const workingSites = ['gmail', 'calendar.google', 'mail.google', 'slack']
-
 const testWorkingData = (state, url) => {
   if (noop(state)) return state
+
+  const workingSites = ['gmail', 'calendar.google', 'mail.google', 'slack']
+
   const hostname = urlParse(url).hostname
   
   let score = userModelState.getWorkingIntent(state)
@@ -590,10 +583,11 @@ const testWorkingData = (state, url) => {
   return state
 }
 
-const shoppingSites = ['amazon', 'newegg', 'ebay', 'asos', 'boohoo', 'sainsburys', 'tesco', 'groceries.iceland', 'walmart', 'asda', 'expedia', 'skyscanner']
-
 const testShoppingData = (state, url) => {
   if (noop(state)) return state
+
+  const shoppingSites = ['amazon', 'newegg', 'ebay', 'asos', 'boohoo', 'sainsburys', 'tesco', 'groceries.iceland', 'walmart', 'asda', 'expedia', 'skyscanner']
+
   const hostname = urlParse(url).hostname
   const lastShopState = userModelState.getShoppingState(state)
   
@@ -615,17 +609,12 @@ const testShoppingData = (state, url) => {
 
     state = userModelState.flagShoppingState(state, url, score)
     const keywords = extractURLKeywordsByField(url, amazonSearchQueryFields)
-    console.log('keywords: ', keywords)
-  
   } else if (!isShopUrl && lastShopState) { // do we need lastShopState? assumes amazon queries hostname changes
     state = userModelState.unFlagShoppingState(state)
   }
 
   console.log("TESTING SHOPPING FUNCTION")
   console.log("SHOPPING SCORE: ", score)
-
-  // TODO: ptigas
-  // read the activity score for shopping
 
   return state
 }
@@ -721,6 +710,8 @@ const classifyPage = (state, action, windowId, tabId) => {
     state = userModelState.updateShortTermInterests(state, pageScore, 0)
     state = userModelState.updateSERPIntent(state, pageScore, lastSearched)
 
+    console.log("Too few words.")
+
     return state
   }
   
@@ -730,6 +721,7 @@ const classifyPage = (state, action, windowId, tabId) => {
 
   const pageScore = um.NBWordVec(words, matrixData, priorData)
 
+  console.log("UPDATE SCORE")
   state = userModelState.appendPageScoreToHistoryAndRotate(state, pageScore)
 
   state = userModelState.updateShortTermInterests(state, pageScore, 0)
@@ -757,9 +749,6 @@ const classifyPage = (state, action, windowId, tabId) => {
 const getUserFeatures = (state) => {
   const features = new Map()
 
-  // get history
-
-  // the intent is influenced by search on google, bing, duckduckgo, etc.
   features.set(userFeatures.INTENT, state.getIn([ 'userModel', 'intent' ]) || [])
   features.set(userFeatures.INTENT_ENTROPY, listEntropy(state.getIn([ 'userModel', 'intent' ]) || []))
   
@@ -769,12 +758,24 @@ const getUserFeatures = (state) => {
   features.set(userFeatures.LONG_INTEREST, state.getIn([ 'userModel', 'longTermInterests' ]) || [])
   features.set(userFeatures.LONG_INTEREST_ENTROPY, listEntropy(state.getIn([ 'userModel', 'longTermInterests' ]) || []))
 
+  const pageScores = um.deriveCategoryScores(userModelState.getPageScoreHistory(state, true))
+  const indexOfMax = um.vectorIndexOfMax(pageScores)
+  const catNames = priorData.names
+  const winnerOverTime = catNames[indexOfMax].split('-')
+  features.set(userFeatures.PAGE_SCORE_AVERAGE, pageScores)
+  features.set(userFeatures.PAGE_SCORE_ENTROPY, listEntropy(pageScores))
+
+  console.log(features)
+
   return features
 }
 
 const checkReadyAdServe = (state, windowId, forceP) => {  // around here is where you will check in with elph
   if (noop(state)) return state
-  console.log("IN")
+
+  console.log("WORKING STATE: " + userModelState.getWorkingIntent(state))
+  console.log("SHOPPING STATE: " + userModelState.getShoppingIntent(state))
+  
   if (!forceP) {
     if (!foregroundP) { // foregroundP is sensible but questionable -SCL
       appActions.onUserModelLog('Ad not served', { reason: 'not in foreground' })
@@ -812,6 +813,7 @@ const checkReadyAdServe = (state, windowId, forceP) => {  // around here is wher
       return state
     }
   }
+  
   console.log("FORCED PRODUCTION")
 
   const bundle = sampleAdFeed
@@ -824,6 +826,8 @@ const checkReadyAdServe = (state, windowId, forceP) => {  // around here is wher
   }
 
   const catNames = priorData.names
+
+  /*
   const mutable = true
   const history = userModelState.getPageScoreHistory(state, mutable)
   const scores = um.deriveCategoryScores(history)
@@ -835,8 +839,10 @@ const checkReadyAdServe = (state, windowId, forceP) => {  // around here is wher
 
     return state
   }
+  */
 
 // given 'sports-rugby-rugby world cup': try that, then 'sports-rugby', then 'sports'
+/*
   const hierarchy = category.split('-')
   let winnerOverTime, result
 
@@ -850,12 +856,20 @@ const checkReadyAdServe = (state, windowId, forceP) => {  // around here is wher
 
     return state
   }
+*/
 
   // get ads and categories
   const seen = userModelState.getAdUUIDSeen(state)
+  console.log("SEEN: " + seen)
 
-  const adsSeen = result.filter(x => seen.get(x.uuid))
-  let adsNotSeen = result.filter(x => !seen.get(x.uuid))
+  // TODO: ptigas
+  // keep count of what seen and when
+  // and expire after 1 hour (configurable)
+  
+  
+  /*
+  const adsSeen = adsListWithCategories.filter(x => seen.get(x.uuid))
+  let adsNotSeen = adsListWithCategories.filter(x => !seen.get(x.uuid))
   const allSeen = (adsNotSeen.length <= 0)
 
   if (allSeen) {
@@ -866,21 +880,19 @@ const checkReadyAdServe = (state, windowId, forceP) => {  // around here is wher
     }
     adsNotSeen = adsSeen
   } // else - recordAdUUIDSeen - this actually only happens in click-or-close event capture in generateAdReportingEvent in this file
-
-  // TODO: ptigas
+  */
 
   // Ads selection main logic
 
   // outline of the algorithm:
   //    Score the ads based on some ranking features
   //    Randomly sample from the unseen ads using the scores as weights (normalize first)
-  //    Initial weights for the logistic regression: 60% intent, 30% short interest, 10% long-term interest
+  //    Initial weights for the logistic regression are handcrafted
   //    Over-time that will move towards more advanced CTR models
 
   // For now we assume user context features and ads relevance features
 
   const userFeatures = getUserFeatures(state)
-  appActions.onUserModelLog('user Features', { userFeatures })
 
   let tvar = topicVariance(state)
   let evar = topicEntropy(state)
@@ -889,15 +901,17 @@ const checkReadyAdServe = (state, windowId, forceP) => {  // around here is wher
 
   const adsScores = scoreAdsRelevance(adsRelevanceFeatures)
 
+  let payload = null
   const selectedAd = sampleAd(adsScores)
-
-  appActions.onUserModelLog('Scored ads', { adsScores })
-
-  const payload = adsListWithCategories[selectedAd]
+  if (adsScores.length > 0 && selectedAd >= 0) {
+    // appActions.onUserModelLog('Scored ads', { adsScores })
+    payload = adsListWithCategories[selectedAd]
+    appActions.onUserModelLog('Ad selected with features contribution', explain(adsRelevanceFeatures[selectedAd]))
+  }
 
   if (!payload) {
     appActions.onUserModelLog('Ad not served',
-                              { reason: 'no ad for winnerOverTime', category, winnerOverTime, selectedAd })
+                              { reason: 'no ad for winnerOverTime', userFeatures, selectedAd })
 
     return state
   }
@@ -905,9 +919,10 @@ const checkReadyAdServe = (state, windowId, forceP) => {  // around here is wher
   const notificationText = payload.notificationText
   const notificationUrl = payload.notificationURL
   const advertiser = payload.advertiser
+  const category = payload.category 
   if (!notificationText || !notificationUrl || !advertiser) {
     appActions.onUserModelLog('Ad not served',
-                              { reason: 'incomplete ad information', category, winnerOverTime, selectedAd, notificationUrl, notificationText, advertiser })
+                              { reason: 'incomplete ad information', userFeatures, selectedAd, notificationUrl, notificationText, advertiser })
 
     return state
   }
@@ -916,7 +931,7 @@ const checkReadyAdServe = (state, windowId, forceP) => {  // around here is wher
 
   goAheadAndShowTheAd(windowId, advertiser, notificationText, notificationUrl, uuid)
   appActions.onUserModelLog(notificationTypes.AD_SHOWN,
-                            {category, winnerOverTime, selectedAd, notificationUrl, notificationText, advertiser, uuid, hierarchy})
+                            {category, userFeatures, selectedAd, notificationUrl, notificationText, advertiser, uuid })
 
   console.log("AND OUT")
   return userModelState.appendAdShownToAdHistory(state)
