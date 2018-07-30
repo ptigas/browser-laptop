@@ -150,11 +150,6 @@ const userModelState = {
     return state.getIn([ 'userModel', key ])
   },
 
-  
-  // TODO: ptigas
-  // Short history (15)
-  // Long history (30 days)
-
   resetShortTermInterestsAndIntent: (state) => {
     return state.setIn([ 'userModel', 'shortTermInterests' ], Immutable.fromJS(
       new Array()
@@ -169,9 +164,7 @@ const userModelState = {
     //const average = a*stateKey + (1-a)*pageScore
     
     // short term history
-    const newState = incrementalWeightedAverage(state, stateKey, pageScore, 0.3) 
-    console.log("Short term topic: " + debugTopics(newState.getIn(stateKey)))
-    console.log("Short term entropy: " + entropy(newState.getIn(stateKey)))
+    const newState = incrementalWeightedAverage(state, stateKey, pageScore, 0.5) 
     return newState
   },
 
@@ -181,8 +174,6 @@ const userModelState = {
 
     // long term history
     const newState = incrementalWeightedAverage(state, stateKey, pageScore, 1.0) 
-    console.log("Long term topic: " + debugTopics(newState.getIn(stateKey)))
-    console.log("Long term entropy: " + entropy(newState.getIn(stateKey)))
     return newState
   },
 
@@ -200,10 +191,6 @@ const userModelState = {
         new Array(pageScore.length).fill(0)
       ))
     }
-    console.log("searchMode: " + searchMode)
-    
-    console.log("intent : " + debugTopics(intent.getIn(stateKey)))
-    console.log("intent entropy : " + entropy(intent.getIn(stateKey)))
 
     return intent
   },
@@ -211,8 +198,6 @@ const userModelState = {
   appendPageScoreToHistoryAndRotate: (state, pageScore) => {
     const stateKey = [ 'userModel', 'pageScoreHistory' ]
     const wrappedScore = Immutable.List(pageScore)
-
-    // console.log(pageScore)
 
     return appendToRingBufferUnderKey(state, stateKey, wrappedScore, maxRowsInPageScoreHistory)
   },
@@ -335,7 +320,7 @@ const userModelState = {
   removeHistorySite: (state, action) => {
     const historyKey = action.get('historyKey')
 
-// DO NOT check settings.ADS_ENABLED
+    // DO NOT check settings.ADS_ENABLED
 
     state = validateState(state)
 
