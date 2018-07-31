@@ -28,8 +28,6 @@ const userModelReducer = (state, action, immutableAction) => {
   switch (action.get('actionType')) {
     case appConstants.APP_SET_STATE: // performed once on app startup
       {
-        // state = userModelState.setUserModelValue(state, 'expired', false)
-
         if (getSetting(settings.ADS_ENABLED, state.get('settings'))) state = userModel.initialize(state, true)
         break
       }
@@ -74,7 +72,6 @@ const userModelReducer = (state, action, immutableAction) => {
       }
     case appConstants.APP_TAB_ACTIVATE_REQUESTED:  // tab switching
       {
-        console.log("CHANGING TABS ALERT")
         const tabId = action.get('tabId')
         const tabValue = tabState.getByTabId(state, tabId)
 
@@ -84,10 +81,6 @@ const userModelReducer = (state, action, immutableAction) => {
         const windowId = tabValue.get('windowId')
 
         state = userModel.onTabUpdate(windowId, tabId, url, action, state)
-
-        // TODO: ptigas
-        // test activity
-
         break
       }
     case appConstants.APP_IDLE_STATE_CHANGED: // TODO where to set this globally
@@ -112,7 +105,7 @@ const userModelReducer = (state, action, immutableAction) => {
 
         state = userModel.onDataAvailable(windowId, tabId, url, action, state)
 
-//      state = userModel.debouncedTimingUpdate(state, url)  // correct place for most updates; checks for debounce
+        // state = userModel.debouncedTimingUpdate(state, url)  // correct place for most updates; checks for debounce
         break
       }
     case appConstants.APP_SHUTTING_DOWN:
@@ -196,7 +189,7 @@ const userModelReducer = (state, action, immutableAction) => {
       }
     case appConstants.APP_ON_USERMODEL_DISABLED:
       {
-        //state = userModelState.setUserModelValue(state, 'expired', true)
+        state = userModelState.setUserModelValue(state, 'expired', true)
         break
       }
     case appConstants.APP_ON_USERMODEL_EXPIRED:

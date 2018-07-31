@@ -135,7 +135,7 @@ class EnabledContent extends ImmutableComponent {
         }
       </div>
       <details style={{marginTop: '50px'}}>
-        <summary>Click to see logz</summary>
+        <summary>Click to see logs</summary>
         <div style={{paddingTop: '10px', marginTop: '10px', borderTop: '1px solid #c5c1c1'}}>
           {
             (this.props.demoValue || []).map(item => {

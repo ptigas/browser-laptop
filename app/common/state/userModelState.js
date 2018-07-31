@@ -161,9 +161,7 @@ const userModelState = {
   updateShortTermInterests: (state, pageScore, timeSinceLastEvent) => {
     const stateKey = [ 'userModel', 'shortTermInterests' ]
     const wrappedScore = Immutable.List(pageScore)
-    //const average = a*stateKey + (1-a)*pageScore
-    
-    // short term history
+
     const newState = incrementalWeightedAverage(state, stateKey, pageScore, 0.5) 
     return newState
   },
@@ -172,7 +170,6 @@ const userModelState = {
     const stateKey = [ 'userModel', 'longTermInterests' ]
     const wrappedScore = Immutable.List(pageScore)
 
-    // long term history
     const newState = incrementalWeightedAverage(state, stateKey, pageScore, 1.0) 
     return newState
   },
@@ -228,7 +225,6 @@ const userModelState = {
     return state.setIn(key, seen)
   },
 
-  // TODO: ptigas
   allowedToShowAdBasedOnHistory: (state) => {
     const history = state.getIn([ 'userModel', 'adsShownHistory' ]) || []
 
@@ -255,7 +251,6 @@ const userModelState = {
       return state.setIn(['userModel', 'elphstring'], letter)
     }
     const longstr = tmp + letter
-    // console.log(longstr)
     return state.setIn(['userModel', 'elphstring'], longstr)
   },
 
@@ -274,7 +269,6 @@ const userModelState = {
     return state.getIn([ 'userModel', 'elphDefer' ])
   },
 
-  // TODO: ptigas
   getActivityScore: (state) => {
     state = validateState(state);
   },
