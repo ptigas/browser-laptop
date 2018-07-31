@@ -5,7 +5,7 @@
  'use strict'
  const um = require('@brave-intl/bat-usermodel')
  const userFeatures = require('../../common/constants/userFeatures')
- //const adFeatures = require('../../common/constants/adFeatures')
+ const adFeatures = require('../../common/constants/adFeatures')
 
  const notificationScore = (ads) => {
     const notificationWeights = um.getNotificationsModel()
@@ -65,13 +65,9 @@ const explain = (featureVector) => {
      const res = new Array()
      const keys = Object.keys(dic)
 
-    keys.forEach( e => {
-        sum += dic[e]
-    })
+    keys.forEach( e => { sum += dic[e] })
 
-    if (sum === 0.0) {
-        return res
-    }
+    if (sum === 0.0) return res
 
     keys.forEach(e => {dic[e] = dic[e]/sum})
 
@@ -136,7 +132,7 @@ const extractAdFeature = (ad, userFeatureVector) => {
     let featureVector = new Map()
 
     featureVector.set(
-        'intent_category_match', 
+        adFeatures.INTENT_MATCH, 
         categoryMatchScore(
             ad['category'], 
             vector2topic(userFeatureVector.get(userFeatures.INTENT)),
@@ -145,7 +141,7 @@ const extractAdFeature = (ad, userFeatureVector) => {
     )
 
     featureVector.set(
-        'short_term_category_match', 
+        adFeatures.SHORT_INTEREST_MATCH, 
         categoryMatchScore(
             ad['category'], 
             vector2topic(userFeatureVector.get(userFeatures.SHORT_INTEREST)),
@@ -154,7 +150,7 @@ const extractAdFeature = (ad, userFeatureVector) => {
     )
 
     featureVector.set(
-        'long_term_category_match', 
+        adFeatures.LONG_INTEREST_MATCH, 
         categoryMatchScore(
             ad['category'], 
             vector2topic(userFeatureVector.get(userFeatures.LONG_INTEREST)),
@@ -178,18 +174,14 @@ const extractAdsFeatures = (ads, userFeatureVector) => {
 
     let features = []
     
-    console.log("FEATURES START")
-    
-    console.log("Intent: " + vector2topic(userFeatureVector.get(userFeatures.INTENT)) + " entropy: " + userFeatureVector.get(userFeatures.INTENT_ENTROPY))
-    console.log("Short: " + vector2topic(userFeatureVector.get(userFeatures.SHORT_INTEREST)) + " entropy: " + userFeatureVector.get(userFeatures.SHORT_INTEREST_ENTROPY))
-    console.log("Long: " + vector2topic(userFeatureVector.get(userFeatures.LONG_INTEREST)) + " entropy: " + userFeatureVector.get(userFeatures.LONG_INTEREST_ENTROPY))
-    console.log("Winning: " + vector2topic(userFeatureVector.get(userFeatures.PAGE_SCORE_AVERAGE)) + " entropy: " + userFeatureVector.get(userFeatures.PAGE_SCORE_ENTROPY))
+    console.log("AdsFeature - Intent: " + vector2topic(userFeatureVector.get(userFeatures.INTENT)) + " entropy: " + userFeatureVector.get(userFeatures.INTENT_ENTROPY))
+    console.log("AdsFeature - Short: " + vector2topic(userFeatureVector.get(userFeatures.SHORT_INTEREST)) + " entropy: " + userFeatureVector.get(userFeatures.SHORT_INTEREST_ENTROPY))
+    console.log("AdsFeature - Long: " + vector2topic(userFeatureVector.get(userFeatures.LONG_INTEREST)) + " entropy: " + userFeatureVector.get(userFeatures.LONG_INTEREST_ENTROPY))
+    console.log("AdsFeature - Winning: " + vector2topic(userFeatureVector.get(userFeatures.PAGE_SCORE_AVERAGE)) + " entropy: " + userFeatureVector.get(userFeatures.PAGE_SCORE_ENTROPY))
 
     for (let id in ads) {
         features.push(extractAdFeature(ads[id], userFeatureVector))
     }
-
-    console.log("FEATURES END")
 
     return features
 }
