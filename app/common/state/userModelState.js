@@ -21,7 +21,7 @@ const getSetting = require('../../../js/settings').getSetting
 const {makeImmutable, makeJS, isMap} = require('../../common/state/immutableUtil')
 const urlUtil = require('../../../js/lib/urlutil')
 
-const maxRowsInPageScoreHistory = 15
+const maxRowsInPageScoreHistory = 5
 const maxRowsInAdsShownHistory = 99
 
 const validateState = function (state) {

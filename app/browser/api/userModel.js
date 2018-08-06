@@ -157,11 +157,8 @@ const generateAdReportingEvent = (state, eventType, action) => {
 
         const now = underscore.now()
         if ((testingP) && (tabUrl === 'https://www.iab.com/') && (nextEasterEgg < now)) {
-          // nextEasterEgg = now + (30 * 1000)
           nextEasterEgg = now + 1000
 
-          state = checkReadyAdServe(state, windows.getActiveWindowId(), true)
-        } else {
           state = checkReadyAdServe(state, windows.getActiveWindowId(), true)
         }
 
@@ -414,13 +411,6 @@ const topicVariance = (state) => { // this is a fairly random function; would ha
   let history = userModelState.getPageScoreHistory(state, true)
   let nback = history.length
   let scores = um.deriveCategoryScores(history)
-  // console.log("----")
-  // for (let i = 0; i < history.length; ++i){
-  //   console.log("HISTORY: ", i, "   ", history[i])
-  // }
-  // console.log(JSON.stringify(scores))
-  // console.log("----")
-
 
   let indexOfMax = um.vectorIndexOfMax(scores)
   let varval = nback / scores[indexOfMax]
@@ -498,16 +488,6 @@ const topicEntropy = (state, window = 10) => {
   return entropy
 }
 
-// TODO: ptigas
-const sessionIdentification = (state) => {
-
-}
-
-// TODO: ptigas
-const demographicsPrediction = (state) => {
-  // returns a gender and a score
-}
-
 const recencyCalc = (state) => { // was using unidle time here; switched to last shopping time
   let now = new Date().getTime()
   let diff = (now - userModelState.getLastShoppingTime(state)) / 1000 // milliseconds
@@ -577,8 +557,7 @@ const testWorkingData = (state, url) => {
   } else { // do we need lastShopState? assumes amazon queries hostname changes
     state = userModelState.updateWorkingState(state, url, score)
   }
-  console.log("TESTING WORKING DATA")
-  console.log("WORKING SCORE: ", score)
+  console.log("Working score: ", score)
 
   return state
 }
@@ -613,8 +592,7 @@ const testShoppingData = (state, url) => {
     state = userModelState.unFlagShoppingState(state)
   }
 
-  console.log("TESTING SHOPPING FUNCTION")
-  console.log("SHOPPING SCORE: ", score)
+  console.log("Shopping score: ", score)
 
   return state
 }
@@ -721,7 +699,6 @@ const classifyPage = (state, action, windowId, tabId) => {
 
   const pageScore = um.NBWordVec(words, matrixData, priorData)
 
-  console.log("UPDATE SCORE")
   state = userModelState.appendPageScoreToHistoryAndRotate(state, pageScore)
 
   state = userModelState.updateShortTermInterests(state, pageScore, 0)
@@ -765,17 +742,29 @@ const getUserFeatures = (state) => {
   features.set(userFeatures.PAGE_SCORE_AVERAGE, pageScores)
   features.set(userFeatures.PAGE_SCORE_ENTROPY, listEntropy(pageScores))
 
-  console.log(features)
-
   return features
+}
+
+const filterSeenAds = (seen, threshold = 60*60*1000) => {
+  let res = new Set()
+
+  for (let k of seen.keys()) {
+      if (k != 'undefined') {
+          const timestamp = seen.get(k)
+          if (!(timestamp == 1 || timestamp < (new Date().getTime() - threshold))) {
+              res.add(k)
+          }
+      } else {
+          res.add(k)
+      }
+  }
+  
+  return res
 }
 
 const checkReadyAdServe = (state, windowId, forceP) => {  // around here is where you will check in with elph
   if (noop(state)) return state
 
-  console.log("WORKING STATE: " + userModelState.getWorkingIntent(state))
-  console.log("SHOPPING STATE: " + userModelState.getShoppingIntent(state))
-  
   if (!forceP) {
     if (!foregroundP) { // foregroundP is sensible but questionable -SCL
       appActions.onUserModelLog('Ad not served', { reason: 'not in foreground' })
@@ -813,8 +802,6 @@ const checkReadyAdServe = (state, windowId, forceP) => {  // around here is wher
       return state
     }
   }
-  
-  console.log("FORCED PRODUCTION")
 
   const bundle = sampleAdFeed
   const adsListWithCategories = adsList(bundle)
@@ -827,63 +814,12 @@ const checkReadyAdServe = (state, windowId, forceP) => {  // around here is wher
 
   const catNames = priorData.names
 
-  /*
-  const mutable = true
-  const history = userModelState.getPageScoreHistory(state, mutable)
-  const scores = um.deriveCategoryScores(history)
-  const indexOfMax = um.vectorIndexOfMax(scores)
-  const category = catNames[indexOfMax]
-
-  if (!category) {
-    appActions.onUserModelLog('Ad not served', { reason: 'no category at offset indexOfMax', indexOfMax })
-
-    return state
-  }
-  */
-
-// given 'sports-rugby-rugby world cup': try that, then 'sports-rugby', then 'sports'
-/*
-  const hierarchy = category.split('-')
-  let winnerOverTime, result
-
-  for (let level in hierarchy) {
-    winnerOverTime = hierarchy.slice(0, hierarchy.length - level).join('-')
-    result = bundle.categories[winnerOverTime]
-    if (result) break
-  }
-  if (!result) {
-    appActions.onUserModelLog('Ad not served', { reason: 'no ads for category', category })
-
-    return state
-  }
-*/
-
   // get ads and categories
-  const seen = userModelState.getAdUUIDSeen(state)
-  console.log("SEEN: " + seen)
-
-  // TODO: ptigas
-  // keep count of what seen and when
-  // and expire after 1 hour (configurable)
-  
-  
-  /*
-  const adsSeen = adsListWithCategories.filter(x => seen.get(x.uuid))
-  let adsNotSeen = adsListWithCategories.filter(x => !seen.get(x.uuid))
-  const allSeen = (adsNotSeen.length <= 0)
-
-  if (allSeen) {
-    appActions.onUserModelLog('Ad round-robin', { category, adsSeen, adsNotSeen })
-    // unmark all
-    for (let i = 0; i < result.length; i++) {
-      state = userModelState.recordAdUUIDSeen(state, result[i].uuid, 0)
-    }
-    adsNotSeen = adsSeen
-  } // else - recordAdUUIDSeen - this actually only happens in click-or-close event capture in generateAdReportingEvent in this file
-  */
+  const blockedAds = filterSeenAds(userModelState.getAdUUIDSeen(state))
+  console.log("Blocked Ads: ")
+  console.log(blockedAds)
 
   // Ads selection main logic
-
   // outline of the algorithm:
   //    Score the ads based on some ranking features
   //    Randomly sample from the unseen ads using the scores as weights (normalize first)
@@ -897,7 +833,9 @@ const checkReadyAdServe = (state, windowId, forceP) => {  // around here is wher
   let tvar = topicVariance(state)
   let evar = topicEntropy(state)
 
-  const adsRelevanceFeatures = extractAdsFeatures(adsListWithCategories, userFeatures)
+  const validAds = adsListWithCategories.filter(x => !blockedAds.has(x.uuid))
+
+  const adsRelevanceFeatures = extractAdsFeatures(validAds, userFeatures)
 
   const adsScores = scoreAdsRelevance(adsRelevanceFeatures)
 
@@ -905,7 +843,7 @@ const checkReadyAdServe = (state, windowId, forceP) => {  // around here is wher
   const selectedAd = sampleAd(adsScores)
   if (adsScores.length > 0 && selectedAd >= 0) {
     // appActions.onUserModelLog('Scored ads', { adsScores })
-    payload = adsListWithCategories[selectedAd]
+    payload = validAds[selectedAd]
     appActions.onUserModelLog('Ad selected with features contribution', explain(adsRelevanceFeatures[selectedAd]))
   }
 
@@ -933,7 +871,6 @@ const checkReadyAdServe = (state, windowId, forceP) => {  // around here is wher
   appActions.onUserModelLog(notificationTypes.AD_SHOWN,
                             {category, userFeatures, selectedAd, notificationUrl, notificationText, advertiser, uuid })
 
-  console.log("AND OUT")
   return userModelState.appendAdShownToAdHistory(state)
 }
 
