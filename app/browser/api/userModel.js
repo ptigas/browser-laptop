@@ -15,6 +15,8 @@ const uuidv4 = require('uuid/v4')
 const app = require('electron').app
 const os = require('os')
 
+const userFeatures = require('../../common/constants/userFeatures')
+
 // Actions
 const appActions = require('../../../js/actions/appActions')
 
@@ -34,9 +36,15 @@ const urlParse = require('../../common/urlParse')
 const urlParse2 = require('url').parse
 const roundtrip = require('./ledger').roundtrip
 
+// Ads relevance helpers
+const { scoreAdsRelevance, sampleAd, extractAdsFeatures, explain } = require('../ads/adsRelevance')
+
 const debugP = (process.env.NODE_ENV === 'test') || (process.env.LEDGER_VERBOSE === 'true')
 const testingP = true
 let nextEasterEgg = 0
+
+let decayTime = 5 //Seconds
+let decayRate = 0.9
 
 let initP
 let foregroundP
@@ -91,14 +99,13 @@ const generateAdReportingEvent = (state, eventType, action) => {
               map.notificationType = translate[result] || result
 
               if (map.notificationType === 'clicked' || map.notificationType === 'dismissed') {
-                state = userModelState.recordAdUUIDSeen(state, uuid)
+                state = userModelState.recordAdUUIDSeen(state, uuid, new Date().getTime())
               }
 //              uncomment testing SCL
 //              if (map.notificationType === 'clicked' || map.notificationType === 'dismissed' || map.notificationType === 'timeout') {
 //                const translateElph = { 'clicked': 'z', 'dismissed': 'y', 'timeout': 'y' } // refers to elph alphabetizer
 //                state = updateTimingModel(state, translateElph[map.notificationType])
 //              }
-
               break
             }
 
@@ -139,6 +146,7 @@ const generateAdReportingEvent = (state, eventType, action) => {
 
         const searchState = userModelState.getSearchState(state)
 
+
         if (searchState) map.tabType = 'search'
         map.tabUrl = tabUrl
 
@@ -149,10 +157,11 @@ const generateAdReportingEvent = (state, eventType, action) => {
 
         const now = underscore.now()
         if ((testingP) && (tabUrl === 'https://www.iab.com/') && (nextEasterEgg < now)) {
-          nextEasterEgg = now + (30 * 1000)
+          nextEasterEgg = now + 1000
 
           state = checkReadyAdServe(state, windows.getActiveWindowId(), true)
         }
+
         break
       }
 
@@ -269,6 +278,9 @@ const initialize = (state, adEnabled) => {
 
   state = processLocales(state, um.getLocalesSync())
 
+  // reset short term interests and intent
+  state = userModelState.resetShortTermInterestsAndIntent(state)
+
   return confirmAdUUIDIfAdEnabled(state, adEnabled)
 }
 
@@ -301,6 +313,19 @@ const removeAllHistory = (state) => {
 
 const saveCachedInfo = (state) => {
   return state
+}
+
+const adsList = (ads) => {
+  let res = []
+  for (let cat in ads['categories']) {
+      const adsWithinCat = ads['categories'][cat]
+      for (let id in adsWithinCat) {
+          let ad = adsWithinCat[id]
+          ad['category'] = cat
+          res.push(ad)
+      }
+  }
+  return res
 }
 
 // begin timing related pieces
@@ -386,9 +411,81 @@ const topicVariance = (state) => { // this is a fairly random function; would ha
   let history = userModelState.getPageScoreHistory(state, true)
   let nback = history.length
   let scores = um.deriveCategoryScores(history)
+
   let indexOfMax = um.vectorIndexOfMax(scores)
   let varval = nback / scores[indexOfMax]
   return valueToLowHigh(varval, 2.5) // 2.5 needs to be changed for ANY algo change here
+}
+
+const normalizeList = (lis) => {
+  let ret = Immutable.List()
+
+  let lSum = lis.reduce((a, b) => a + b)
+  if (lSum == 0){
+    ret = lis.map(val => 0)
+  }
+  else{
+    ret = lis.map(val => val / lSum)
+  }
+  return ret
+}
+
+const listEntropy = (lis) => {
+  if (lis.length == 0) {
+    return 1.0
+  }    
+
+  let likelihood = Immutable.List()
+  let lSum = lis.reduce((a, b) => a + b)
+  
+  if (lSum > 0){
+    likelihood = Immutable.fromJS(lis.map(val => val / lSum))
+  }
+  else{
+    return 1
+  }
+
+  let entropy = 0
+  for (let i = 0; i < likelihood.size; ++i){
+    let a = likelihood.get(i)
+    if (a > 0){
+      entropy += -a*Math.log(a)
+    }
+  }
+
+  return entropy
+}
+
+const topicEntropy = (state, window = 10) => {
+  // return the entropy of the topics distribution over a window
+  // try different windows (5, 15)
+
+  let history = userModelState.getPageScoreHistory(state, true)
+  let historyTopics = Immutable.List()
+  for (let i = 0; i < history.length; ++i){
+    historyTopics = historyTopics.push(Immutable.List(history[i]))
+  }
+
+  window = Math.min(window, history.length)
+  historyTopics = historyTopics.slice(history.length - window)
+
+  let historyTopicsLikelihood = Immutable.List()
+  for (let i = 0; i < window; ++i){
+    historyTopicsLikelihood = historyTopicsLikelihood.push(normalizeList(historyTopics.get(i)))
+  }
+
+  let topicSums = Immutable.List()
+  for (let j = 0; j < historyTopicsLikelihood.get(0).size; ++j){
+    let tSum = 0
+    for (let i = 0; i < window; ++i){
+      tSum += historyTopicsLikelihood.get(i).get(j)
+    }
+    topicSums = topicSums.push(tSum)
+  }
+
+  let entropy = listEntropy(topicSums)
+
+  return entropy
 }
 
 const recencyCalc = (state) => { // was using unidle time here; switched to last shopping time
@@ -431,19 +528,72 @@ const extractURLKeywordsByField = (url, queryFields) => {
   return found
 }
 
+const testWorkingData = (state, url) => {
+  if (noop(state)) return state
+
+  const workingSites = ['gmail', 'calendar.google', 'mail.google', 'slack']
+
+  const hostname = urlParse(url).hostname
+  
+  let score = userModelState.getWorkingIntent(state)
+
+  let now = new Date().getTime()
+  const lastWorked = (now - userModelState.getLastWorkSiteTime(state)) / 1000 // milliseconds => seconds
+
+  score = score * Math.pow(decayRate, Math.floor(lastWorked / decayTime))
+
+  let isWorkUrl = false
+  for (let i = 0; i < workingSites.length; ++i){
+    if (url.match(new RegExp(".*" + workingSites[i] + "[.].*" ))){
+      isWorkUrl = true
+    }
+  }
+  if (isWorkUrl) { //FIX: lfeng1999 - All shopping sites
+    
+    score = Math.min(1, score + 0.4) 
+
+    state = userModelState.updateWorkingState(state, url, score)
+  
+  } else { // do we need lastShopState? assumes amazon queries hostname changes
+    state = userModelState.updateWorkingState(state, url, score)
+  }
+  console.log("Working score: ", score)
+
+  return state
+}
+
 const testShoppingData = (state, url) => {
   if (noop(state)) return state
+
+  const shoppingSites = ['amazon', 'newegg', 'ebay', 'asos', 'boohoo', 'sainsburys', 'tesco', 'groceries.iceland', 'walmart', 'asda', 'expedia', 'skyscanner']
+
   const hostname = urlParse(url).hostname
   const lastShopState = userModelState.getShoppingState(state)
+  
+  let score = userModelState.getShoppingIntent(state)
 
-  if (hostname === 'www.amazon.com') {
-    const score = 1.0   // eventually this will be more sophisticated than if(), but amazon is always a shopping destination
+  let now = new Date().getTime()
+  const lastShopped = (now - userModelState.getLastShoppingTime(state)) / 1000 // milliseconds => seconds
+
+  score = score * Math.pow(decayRate, Math.floor(lastShopped / decayTime))
+
+  let isShopUrl = false
+  for (let i = 0; i < shoppingSites.length; ++i){
+    if (url.match(new RegExp(".*" + shoppingSites[i] + "[.].*" ))){
+      isShopUrl = true
+    }
+  }
+  if (isShopUrl) { //FIX: lfeng1999 - All shopping sites
+    score = Math.min(1, score + 0.2) 
+
     state = userModelState.flagShoppingState(state, url, score)
     const keywords = extractURLKeywordsByField(url, amazonSearchQueryFields)
-    console.log('keywords: ', keywords)
-  } else if (hostname !== 'www.amazon.com' && lastShopState) { // do we need lastShopState? assumes amazon queries hostname changes
+  } else if (!isShopUrl && lastShopState) { // do we need lastShopState? assumes amazon queries hostname changes
     state = userModelState.unFlagShoppingState(state)
   }
+
+  console.log("Shopping score: ", score)
+
   return state
 }
 
@@ -510,27 +660,50 @@ const goAheadAndShowTheAd = (windowId, notificationTitle, notificationText, noti
   )
 }
 
-const classifyPage = (state, action, windowId) => {
+const classifyPage = (state, action, windowId, tabId) => {
   if (noop(state)) return state
 
   const url = action.getIn([ 'scrapedData', 'url' ])
   let headers = action.getIn([ 'scrapedData', 'headers' ])
   let body = action.getIn([ 'scrapedData', 'body' ])
 
-  if (!headers) return state
+  if (!headers) {
+    console.log("No headers, returning!")
+    return state
+  }
 
   headers = cleanLines(headers)
   body = cleanLines(body)
 
   let words = headers.concat(body)
 
-  if (words.length < um.minimumWordsToClassify) return state
+  let now = new Date().getTime()
+  let lastSearched = (now - userModelState.getLastSearchTime(state)) / 1000 // milliseconds
 
-  if (words.length > um.maximumWordsToClassify) words = words.slice(0, um.maximumWordsToClassify)
+  if (words.length < um.minimumWordsToClassify) {
+
+    // since we cannot infer confident scores, reduce 
+    // confidence on the short term interests and intent as well 
+    const pageScore = new Array(priorData.names.length).fill(0)
+    state = userModelState.updateShortTermInterests(state, pageScore, 0)
+    state = userModelState.updateSERPIntent(state, pageScore, lastSearched)
+
+    console.log("Too few words.")
+
+    return state
+  }
+  
+  if (words.length > um.maximumWordsToClassify) {
+    words = words.slice(0, um.maximumWordsToClassify)
+  }
 
   const pageScore = um.NBWordVec(words, matrixData, priorData)
 
   state = userModelState.appendPageScoreToHistoryAndRotate(state, pageScore)
+
+  state = userModelState.updateShortTermInterests(state, pageScore, 0)
+  state = userModelState.updateLongTermInterests(state, pageScore, 0)
+  state = userModelState.updateSERPIntent(state, pageScore, lastSearched)
 
   const catNames = priorData.names
 
@@ -548,6 +721,45 @@ const classifyPage = (state, action, windowId) => {
   appActions.onUserModelLog('Site visited', { url, immediateWinner, winnerOverTime })
 
   return state
+}
+
+const getUserFeatures = (state) => {
+  const features = new Map()
+
+  features.set(userFeatures.INTENT, state.getIn([ 'userModel', 'intent' ]) || [])
+  features.set(userFeatures.INTENT_ENTROPY, listEntropy(state.getIn([ 'userModel', 'intent' ]) || []))
+  
+  features.set(userFeatures.SHORT_INTEREST, state.getIn([ 'userModel', 'shortTermInterests' ]) || [])
+  features.set(userFeatures.SHORT_INTEREST_ENTROPY, listEntropy(state.getIn([ 'userModel', 'shortTermInterests' ]) || []))
+
+  features.set(userFeatures.LONG_INTEREST, state.getIn([ 'userModel', 'longTermInterests' ]) || [])
+  features.set(userFeatures.LONG_INTEREST_ENTROPY, listEntropy(state.getIn([ 'userModel', 'longTermInterests' ]) || []))
+
+  const pageScores = um.deriveCategoryScores(userModelState.getPageScoreHistory(state, true))
+  const indexOfMax = um.vectorIndexOfMax(pageScores)
+  const catNames = priorData.names
+  const winnerOverTime = catNames[indexOfMax].split('-')
+  features.set(userFeatures.PAGE_SCORE_AVERAGE, pageScores)
+  features.set(userFeatures.PAGE_SCORE_ENTROPY, listEntropy(pageScores))
+
+  return features
+}
+
+const filterSeenAds = (seen, threshold = 60*60*1000) => {
+  let res = new Set()
+
+  for (let k of seen.keys()) {
+      if (k != 'undefined') {
+          const timestamp = seen.get(k)
+          if (!(timestamp == 1 || timestamp < (new Date().getTime() - threshold))) {
+              res.add(k)
+          }
+      } else {
+          res.add(k)
+      }
+  }
+  
+  return res
 }
 
 const checkReadyAdServe = (state, windowId, forceP) => {  // around here is where you will check in with elph
@@ -592,6 +804,8 @@ const checkReadyAdServe = (state, windowId, forceP) => {  // around here is wher
   }
 
   const bundle = sampleAdFeed
+  const adsListWithCategories = adsList(bundle)
+
   if (!bundle) {
     appActions.onUserModelLog('Ad not served', { reason: 'no ad catalog' })
 
@@ -599,52 +813,43 @@ const checkReadyAdServe = (state, windowId, forceP) => {  // around here is wher
   }
 
   const catNames = priorData.names
-  const mutable = true
-  const history = userModelState.getPageScoreHistory(state, mutable)
-  const scores = um.deriveCategoryScores(history)
-  const indexOfMax = um.vectorIndexOfMax(scores)
-  const category = catNames[indexOfMax]
-  if (!category) {
-    appActions.onUserModelLog('Ad not served', { reason: 'no category at offset indexOfMax', indexOfMax })
 
-    return state
+  // get ads and categories
+  const blockedAds = filterSeenAds(userModelState.getAdUUIDSeen(state))
+  console.log("Blocked Ads: ")
+  console.log(blockedAds)
+
+  // Ads selection main logic
+  // outline of the algorithm:
+  //    Score the ads based on some ranking features
+  //    Randomly sample from the unseen ads using the scores as weights (normalize first)
+  //    Initial weights for the logistic regression are handcrafted
+  //    Over-time that will move towards more advanced CTR models
+
+  // For now we assume user context features and ads relevance features
+
+  const userFeatures = getUserFeatures(state)
+
+  let tvar = topicVariance(state)
+  let evar = topicEntropy(state)
+
+  const validAds = adsListWithCategories.filter(x => !blockedAds.has(x.uuid))
+
+  const adsRelevanceFeatures = extractAdsFeatures(validAds, userFeatures)
+
+  const adsScores = scoreAdsRelevance(adsRelevanceFeatures)
+
+  let payload = null
+  const selectedAd = sampleAd(adsScores)
+  if (adsScores.length > 0 && selectedAd >= 0) {
+    // appActions.onUserModelLog('Scored ads', { adsScores })
+    payload = validAds[selectedAd]
+    appActions.onUserModelLog('Ad selected with features contribution', explain(adsRelevanceFeatures[selectedAd]))
   }
-
-// given 'sports-rugby-rugby world cup': try that, then 'sports-rugby', then 'sports'
-  const hierarchy = category.split('-')
-  let winnerOverTime, result
-
-  for (let level in hierarchy) {
-    winnerOverTime = hierarchy.slice(0, hierarchy.length - level).join('-')
-    result = bundle.categories[winnerOverTime]
-    if (result) break
-  }
-  if (!result) {
-    appActions.onUserModelLog('Ad not served', { reason: 'no ads for category', category })
-
-    return state
-  }
-
-  const seen = userModelState.getAdUUIDSeen(state)
-
-  const adsSeen = result.filter(x => seen.get(x.uuid))
-  let adsNotSeen = result.filter(x => !seen.get(x.uuid))
-  const allSeen = (adsNotSeen.length <= 0)
-
-  if (allSeen) {
-    appActions.onUserModelLog('Ad round-robin', { category, adsSeen, adsNotSeen })
-    // unmark all
-    for (let i = 0; i < result.length; i++) state = userModelState.recordAdUUIDSeen(state, result[i].uuid, 0)
-    adsNotSeen = adsSeen
-  } // else - recordAdUUIDSeen - this actually only happens in click-or-close event capture in generateAdReportingEvent in this file
-
-  // select an ad that isn't seen
-  const arbitraryKey = randomKey(adsNotSeen)
-  const payload = adsNotSeen[arbitraryKey]
 
   if (!payload) {
     appActions.onUserModelLog('Ad not served',
-                              { reason: 'no ad for winnerOverTime', category, winnerOverTime, arbitraryKey })
+                              { reason: 'no ad for winnerOverTime', userFeatures, selectedAd })
 
     return state
   }
@@ -652,9 +857,10 @@ const checkReadyAdServe = (state, windowId, forceP) => {  // around here is wher
   const notificationText = payload.notificationText
   const notificationUrl = payload.notificationURL
   const advertiser = payload.advertiser
+  const category = payload.category 
   if (!notificationText || !notificationUrl || !advertiser) {
     appActions.onUserModelLog('Ad not served',
-                              { reason: 'incomplete ad information', category, winnerOverTime, arbitraryKey, notificationUrl, notificationText, advertiser })
+                              { reason: 'incomplete ad information', userFeatures, selectedAd, notificationUrl, notificationText, advertiser })
 
     return state
   }
@@ -663,7 +869,7 @@ const checkReadyAdServe = (state, windowId, forceP) => {  // around here is wher
 
   goAheadAndShowTheAd(windowId, advertiser, notificationText, notificationUrl, uuid)
   appActions.onUserModelLog(notificationTypes.AD_SHOWN,
-                            {category, winnerOverTime, arbitraryKey, notificationUrl, notificationText, advertiser, uuid, hierarchy})
+                            {category, userFeatures, selectedAd, notificationUrl, notificationText, advertiser, uuid })
 
   return userModelState.appendAdShownToAdHistory(state)
 }
@@ -716,6 +922,7 @@ const confirmAdUUIDIfAdEnabled = (state, adEnabled) => {
 
 let collectActivityId
 
+
 const oneDay = (debugP ? 600 : 86400) * 1000
 const oneHour = (debugP ? 25 : 3600) * 1000
 const hackStagingOn = process.env.COLLECTOR_DEBUG === 'true'
@@ -756,6 +963,7 @@ const collectActivityAsNeeded = (state, adEnabled) => {
 
 const collectActivity = (state) => {
   if (noop(state)) return state
+  console.log("Collecting Activity")
 
   const path = '/v1/reports/' + userModelState.getAdUUID(state)
   const events = userModelState.getReportingEventQueue(state).toJS()
@@ -855,6 +1063,33 @@ const privateTest = () => {
   return 1
 }
 
+// MIGRATION REFACTORING
+const onDataAvailable = (windowId, tabId, url, action, state) => {
+  state = testShoppingData(state, url)
+  state = testSearchState(state, url)
+  state = testWorkingData(state, url)
+  state = classifyPage(state, action, windowId, tabId)
+
+  // TODO: ptigas
+  // change state to set session id
+
+  return state
+}
+
+const onTabUpdate = (windowId, tabId, url, action, state) => {
+  state = tabUpdate(state, action)
+  state = testShoppingData(state, url)
+  state = testSearchState(state, url)
+  state = testWorkingData(state, url)
+  state = generateAdReportingEvent(state, 'focus', action)
+
+  return state
+}
+
+const onSessionReset = (windowId, tabId, url, state) => {
+  return state
+}
+
 const getMethods = () => {
   const publicMethods = {
     initialize,
@@ -866,6 +1101,7 @@ const getMethods = () => {
     confirmAdUUIDIfAdEnabled,
     testShoppingData,
     testSearchState,
+    testWorkingData,
     recordUnIdle,
     classifyPage,
     saveCachedInfo,
@@ -875,7 +1111,11 @@ const getMethods = () => {
     downloadSurveys,
     retrieveSSID,
     debouncedTimingUpdate,
-    checkReadyAdServe
+    checkReadyAdServe,
+
+    onTabUpdate,
+    onDataAvailable,
+    onSessionReset
   }
 
   let privateMethods = {}

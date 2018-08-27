@@ -664,6 +664,7 @@ AppStore
     searchActivity: any,
     searchUrl: any,                  // url of last searching activity
     shopActivity: any,              // shopping now bool
+    shopIntent: any,              // user's level of shopping intent
     shopUrl: any,                     // url of last shopping activity
     pageClass: any,               
     places: string[],
@@ -671,7 +672,8 @@ AppStore
     purchaseTime: any,
     purchaseUrl: any,
     updated: any,
-    url: any
+    url: any,
+    workIntent: any               // user's level of work intent
   },
   visits: [{
     endTime: number, // datetime.getTime()

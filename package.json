@@ -89,7 +89,7 @@
   "homepage": "https://www.brave.com/",
   "dependencies": {
     "@brave-intl/bat-elph": "^0.1.2",
-    "@brave-intl/bat-usermodel": "^0.4.4",
+    "@brave-intl/bat-usermodel": "git@github.com:brave-intl/bat-usermodel.git#77c4fbb9cba10793b7986aaafb481bbc336bbf67",
     "acorn": "3.2.0",
     "aphrodite": "1.1.0",
     "async": "^2.0.1",
@@ -120,6 +120,7 @@
     "lru-cache": "^1.0.0",
     "nan": "2.8.0",
     "niceware": "^1.0.4",
+    "node-abi": "^2.4.3",
     "parse-torrent": "^5.8.1",
     "prettier-bytes": "^1.0.3",
     "prop-types": "^15.5.6",

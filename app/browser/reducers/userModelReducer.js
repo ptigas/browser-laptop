@@ -78,10 +78,9 @@ const userModelReducer = (state, action, immutableAction) => {
         if ((tabValue == null) || (tabValue.get('incognito') === true)) break
 
         const url = tabValue.get('url')
-        state = userModel.tabUpdate(state, action)
-        state = userModel.testShoppingData(state, url)
-        state = userModel.testSearchState(state, url)
-        state = userModel.generateAdReportingEvent(state, 'focus', action)
+        const windowId = tabValue.get('windowId')
+
+        state = userModel.onTabUpdate(windowId, tabId, url, action, state)
         break
       }
     case appConstants.APP_IDLE_STATE_CHANGED: // TODO where to set this globally
@@ -98,14 +97,15 @@ const userModelReducer = (state, action, immutableAction) => {
       {
         const tabId = action.get('tabId')
         const tabValue = tabState.getByTabId(state, tabId)
-
+        
         if ((tabValue == null) || (tabValue.get('incognito') === true)) break
 
         const url = tabValue.get('url')
-        state = userModel.testShoppingData(state, url)
-        state = userModel.testSearchState(state, url)
-        state = userModel.classifyPage(state, action, tabValue.get('windowId'))
-//        state = userModel.debouncedTimingUpdate(state, url)  // correct place for most updates; checks for debounce
+        const windowId = tabValue.get('windowId')
+
+        state = userModel.onDataAvailable(windowId, tabId, url, action, state)
+
+        // state = userModel.debouncedTimingUpdate(state, url)  // correct place for most updates; checks for debounce
         break
       }
     case appConstants.APP_SHUTTING_DOWN:

@@ -4,6 +4,7 @@
 
 'use strict'
 
+const um = require('@brave-intl/bat-usermodel')
 const Immutable = require('immutable')
 const assert = require('assert')
 
@@ -48,6 +49,27 @@ const historyRespectsRollingTimeConstraint = function (history, secondsWindow, a
   return (recentCount <= allowableAdCount)
 }
 
+const incrementalWeightedAverage = (state, key, item, weight) => {
+  if (!userModelState.getAdEnabledValue(state)) return state
+
+  state = validateState(state)
+
+  let previous = state.getIn(key)
+  
+  // it's undefined...
+  if (!Immutable.List.isList(previous) || previous.length == 0) {
+    return state.setIn(key, Immutable.fromJS(item))
+  }
+
+  let v = Immutable.fromJS(
+    item.map((a, i) => {
+      return (1-weight)*a + weight*(previous.getIn([i]) || 0)
+    })
+  )
+  
+  return state.setIn(key, v)
+}
+
 const appendToRingBufferUnderKey = (state, key, item, maxRows) => {
   if (!userModelState.getAdEnabledValue(state)) return state
 
@@ -88,6 +110,32 @@ const setReportingEventQueue = (state, queue) => {
   return state.setIn([ 'userModel', 'reportingEventQueue' ], queue)
 }
 
+const debugTopics = (pageScore) => {
+  const priorData = um.getPriorDataSync()
+  const catNames = priorData.names
+
+  const immediateMax = um.vectorIndexOfMax(pageScore)
+  const immediateWinner = catNames[immediateMax].split('-')
+  return immediateWinner
+}
+
+const entropy = (vector) => {
+  let entropy = 0
+  let sum = 0
+  for (let i = 0; i < vector.size; ++i){
+    sum += vector.get(i)
+  }
+
+  for (let i = 0; i < vector.size; ++i){
+    let a = vector.get(i) / sum
+    if (a > 0){
+      entropy += -a*Math.log(a)
+    }
+  }
+  
+  return entropy
+}
+
 const userModelState = {
   setUserModelValue: (state, key, value) => {
     if (!key) return state
@@ -100,6 +148,48 @@ const userModelState = {
   getUserModelValue: (state, key) => {
     state = validateState(state)
     return state.getIn([ 'userModel', key ])
+  },
+
+  resetShortTermInterestsAndIntent: (state) => {
+    return state.setIn([ 'userModel', 'shortTermInterests' ], Immutable.fromJS(
+      new Array()
+    )).setIn([ 'userModel', 'intent' ], Immutable.fromJS(
+      new Array()
+    ))
+  },
+
+  updateShortTermInterests: (state, pageScore, timeSinceLastEvent) => {
+    const stateKey = [ 'userModel', 'shortTermInterests' ]
+    const wrappedScore = Immutable.List(pageScore)
+
+    const newState = incrementalWeightedAverage(state, stateKey, pageScore, 0.5) 
+    return newState
+  },
+
+  updateLongTermInterests: (state, pageScore, timeSinceLastEvent) => {
+    const stateKey = [ 'userModel', 'longTermInterests' ]
+    const wrappedScore = Immutable.List(pageScore)
+
+    const newState = incrementalWeightedAverage(state, stateKey, pageScore, 1.0) 
+    return newState
+  },
+
+  updateSERPIntent: (state, pageScore, timeSinceLastEvent) => {
+    const stateKey = [ 'userModel', 'intent' ]
+    const wrappedScore = Immutable.List(pageScore)
+    
+    const searchMode = userModelState.getSearchState(state)
+    let intent
+    if (searchMode) {
+      intent = incrementalWeightedAverage(state, stateKey, pageScore, 0.3) 
+    } else {
+      // reset the intent to 0
+      intent = state.setIn(stateKey, Immutable.fromJS(
+        new Array(pageScore.length).fill(0)
+      ))
+    }
+
+    return intent
   },
 
   appendPageScoreToHistoryAndRotate: (state, pageScore) => {
@@ -161,7 +251,6 @@ const userModelState = {
       return state.setIn(['userModel', 'elphstring'], letter)
     }
     const longstr = tmp + letter
-    console.log(longstr)
     return state.setIn(['userModel', 'elphstring'], longstr)
   },
 
@@ -180,8 +269,19 @@ const userModelState = {
     return state.getIn([ 'userModel', 'elphDefer' ])
   },
 
-  getPageScoreHistory: (state, mutable = false) => {
+  getActivityScore: (state) => {
+    state = validateState(state);
+  },
+
+  getShortTermInterest: (state, mutable = false) => {
     state = validateState(state)
+    const interests = state.getIn([ 'userModel', 'shortTermInterests' ]) || []
+
+    return (mutable ? makeJS(interests) : makeImmutable(interests))
+  },
+
+  getPageScoreHistory: (state, mutable = false) => {
+    state = validateState(state);
     const history = state.getIn([ 'userModel', 'pageScoreHistory' ]) || []
 
     return (mutable ? makeJS(history) : makeImmutable(history))
@@ -214,7 +314,7 @@ const userModelState = {
   removeHistorySite: (state, action) => {
     const historyKey = action.get('historyKey')
 
-// DO NOT check settings.ADS_ENABLED
+    // DO NOT check settings.ADS_ENABLED
 
     state = validateState(state)
 
@@ -262,13 +362,14 @@ const userModelState = {
   },
 
   // user is visiting a shopping website
-  flagShoppingState: (state, url) => {
+  flagShoppingState: (state, url, score) => {
     if (!userModelState.getAdEnabledValue(state)) return state
 
     state = validateState(state)
 
     return state
           .setIn([ 'userModel', 'shopActivity' ], true)
+          .setIn([ 'userModel', 'shopIntent' ], score)
           .setIn([ 'userModel', 'shopUrl' ], url)
           .setIn([ 'userModel', 'lastShopTime' ], new Date().getTime())
   },
@@ -291,6 +392,41 @@ const userModelState = {
     state = validateState(state)
 
     return state.getIn([ 'userModel', 'lastShopTime' ])
+  },
+
+  getShoppingIntent: (state) => {
+    state = validateState(state)
+
+    return state.getIn([ 'userModel', 'shopIntent'])
+  },
+
+  updateWorkingState: (state, url, score) => {
+    if (!userModelState.getAdEnabledValue(state)) return state
+
+    state = validateState(state)
+
+    return state
+          .setIn([ 'userModel', 'workIntent' ], score)
+          .setIn([ 'userModel', 'workUrl' ], url)
+          .setIn([ 'userModel', 'lastWorkSiteTime' ], new Date().getTime())
+  },
+
+  getWorkingIntent: (state) => {
+    state = validateState(state)
+
+    return state.getIn([ 'userModel', 'workIntent'])
+  },
+
+  getLastWorkSiteTime: (state) => {
+    state = validateState(state)
+
+    return state.getIn([ 'userModel', 'lastWorkSiteTime' ])
+  },
+  
+  getWorkingIntent: (state) => {
+    state = validateState(state)
+
+    return state.getIn([ 'userModel', 'workIntent' ])
   },
 
   flagUserBuyingSomething: (state, url) => {
